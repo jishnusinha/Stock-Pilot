@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
   BarChart3,
@@ -6,10 +7,11 @@ import {
   LayoutDashboard,
   LineChart,
   Package,
+  PanelLeftClose,
+  PanelLeftOpen,
   Settings,
   SlidersHorizontal,
 } from "lucide-react";
-import { useEffect, useState } from "react";
 import { api } from "../api/client";
 
 const nav = [
@@ -19,98 +21,79 @@ const nav = [
   { to: "/agents", label: "Agent Intelligence", icon: Brain },
   { to: "/performance", label: "Model Performance", icon: LineChart },
   { to: "/reorders", label: "Reorders", icon: Package },
+  { to: "/settings", label: "Settings", icon: Settings },
 ];
 
-type Props = { mobileOpen?: boolean; onNavigate?: () => void };
+type Props = {
+  mobileOpen?: boolean;
+  compact?: boolean;
+  onNavigate?: () => void;
+  onToggleCompact?: () => void;
+};
 
-export function Sidebar({ mobileOpen, onNavigate }: Props) {
+export function Sidebar({ mobileOpen, compact, onNavigate, onToggleCompact }: Props) {
   const [models, setModels] = useState<number | null>(null);
+  const [expected, setExpected] = useState(10);
   const [dbReady, setDbReady] = useState<boolean | null>(null);
 
   useEffect(() => {
-    api.health().then((h) => {
-      setModels(h.models_available);
-      setDbReady(h.db_ready);
-    }).catch(() => {
-      setModels(null);
-      setDbReady(null);
-    });
+    api
+      .health()
+      .then((h) => {
+        setModels(h.models_available);
+        setExpected(h.models_expected || 10);
+        setDbReady(h.db_ready);
+      })
+      .catch(() => {
+        setModels(null);
+        setDbReady(false);
+      });
   }, []);
 
-  const cls = mobileOpen ? "app-sidebar mobile-open" : "app-sidebar";
+  const cls = ["app-sidebar", mobileOpen ? "mobile-open" : "", compact ? "compact" : ""].filter(Boolean).join(" ");
 
   return (
     <aside className={cls} aria-label="Main navigation">
-      <p className="brand" style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 18, margin: "0 0 24px" }}>
-        <BarChart3 size={22} color="var(--color-primary)" />
-        StockPilot
-      </p>
+      <div className="brand">
+        <span className="brand-mark" aria-hidden>
+          <BarChart3 size={18} />
+        </span>
+        <span className="brand-word">StockPilot</span>
+      </div>
       <nav style={{ flex: 1 }}>
-        <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+        <ul className="nav-list">
           {nav.map(({ to, label, icon: Icon, end }) => (
             <li key={to}>
               <NavLink
                 to={to}
                 end={end}
                 onClick={onNavigate}
-                style={({ isActive }) => ({
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  color: isActive ? "var(--color-primary)" : "var(--color-text)",
-                  background: isActive ? "var(--color-mint)" : "transparent",
-                  fontWeight: isActive ? 600 : 400,
-                  textDecoration: "none",
-                })}
+                title={label}
+                className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
               >
                 <Icon size={18} />
-                {label}
+                <span className="nav-label">{label}</span>
               </NavLink>
             </li>
           ))}
-          <li>
-            <NavLink
-              to="/settings"
-              onClick={onNavigate}
-              style={({ isActive }) => ({
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "10px 12px",
-                borderRadius: 10,
-                color: isActive ? "var(--color-primary)" : "var(--color-text-muted)",
-                textDecoration: "none",
-              })}
-            >
-              <Settings size={18} />
-              Settings
-            </NavLink>
-          </li>
         </ul>
       </nav>
-      <div
-        className="demo-panel"
-        style={{
-          marginTop: "auto",
-          padding: 12,
-          background: "var(--color-mint)",
-          borderRadius: 12,
-          border: "1px solid var(--color-border)",
-          fontSize: 12,
-        }}
-      >
-        <strong style={{ display: "block", marginBottom: 6 }}>Demo Mode</strong>
-        <span style={{ color: "var(--color-text-muted)" }}>Summit Retail Co. · SYNTHETIC_DEMO</span>
-        <div style={{ marginTop: 8 }}>
-          <span>ML models: </span>
-          <strong>
-            {models != null ? `${models}/10 fitted` : "—"}
-          </strong>
-        </div>
-        <div>
-          Database: <strong>{dbReady == null ? "—" : dbReady ? "Ready" : "Offline"}</strong>
+      <div className="sidebar-foot">
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onToggleCompact} aria-pressed={compact}>
+          {compact ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          <span className="compact-label">{compact ? "Expand" : "Compact"}</span>
+        </button>
+        <div className="demo-panel">
+          <strong>Summit Retail Co.</strong>
+          <div style={{ marginTop: 6 }}>Demo retailer · SYNTHETIC_DEMO</div>
+          <div style={{ marginTop: 8 }}>
+            <span className={`status-dot ${models != null && models > 0 ? "ok" : "bad"}`} />
+            ML models: <strong>{models != null ? `${models}/${expected} fitted` : "unreachable"}</strong>
+          </div>
+          <div>
+            <span className={`status-dot ${dbReady ? "ok" : dbReady === false ? "bad" : ""}`} />
+            Database: <strong>{dbReady == null ? "—" : dbReady ? "Connected" : "Offline"}</strong>
+          </div>
         </div>
       </div>
     </aside>

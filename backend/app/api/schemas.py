@@ -101,6 +101,16 @@ class ProductsListResponse(BaseModel):
     page_size: int
 
 
+class InventorySummary(BaseModel):
+    total_skus: int
+    low_stock: int
+    overstocked: int
+    avg_days_of_supply: float | None = None
+    low_stock_rule: str
+    overstock_rule: str
+    categories: list[str] = Field(default_factory=list)
+
+
 class Supplier(BaseModel):
     id: int
     name: str
@@ -238,6 +248,16 @@ class ScenarioSummary(BaseModel):
     product_id: int
     created_at: str
     provenance: str | None = None
+
+
+class ScenarioDetail(BaseModel):
+    id: int
+    name: str | None = None
+    product_id: int
+    created_at: str
+    provenance: str | None = None
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    results: dict[str, Any] | None = None
 
 
 class ReorderCreateRequest(BaseModel):

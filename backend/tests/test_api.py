@@ -142,3 +142,66 @@ def test_agents_and_performance(client):
     p = client.get("/api/performance")
     assert p.status_code == 200
     assert "kpis" in p.json()
+
+
+def test_product_sort_direction(client):
+    asc = client.get("/api/products", params={"sort": "name", "direction": "asc", "page_size": 50})
+    desc = client.get("/api/products", params={"sort": "name", "direction": "desc", "page_size": 50})
+    assert asc.status_code == 200 and desc.status_code == 200
+    names_asc = [i["name"] for i in asc.json()["items"]]
+    names_desc = [i["name"] for i in desc.json()["items"]]
+    assert names_asc == sorted(names_asc)
+    assert names_desc == sorted(names_desc, reverse=True)
+    assert names_asc != names_desc
+
+
+def test_inventory_summary_is_catalog_wide(client):
+    summary = client.get("/api/inventory/summary")
+    assert summary.status_code == 200
+    body = summary.json()
+    listed = client.get("/api/products", params={"page_size": 5}).json()
+    assert body["total_skus"] == listed["total"]
+    assert body["total_skus"] > len(listed["items"])
+    assert isinstance(body["categories"], list)
+    assert body["categories"]
+    assert "days_of_supply <= 14" in body["low_stock_rule"]
+
+
+def test_scenario_detail_roundtrip(client):
+    pid = client.get("/api/products").json()["items"][0]["id"]
+    created = client.post(
+        "/api/scenarios",
+        json={
+            "name": "reopen-me",
+            "product_id": pid,
+            "inputs": {
+                "product_id": pid,
+                "reorder_qty": 24,
+                "proposed_price_paise": 19900,
+                "lead_time_days": 6,
+                "budget_paise": 250000,
+            },
+            "results": {"applied_qty": 24},
+        },
+    )
+    assert created.status_code == 200
+    sid = created.json()["id"]
+    detail = client.get(f"/api/scenarios/{sid}")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["inputs"]["reorder_qty"] == 24
+    assert body["inputs"]["lead_time_days"] == 6
+    assert body["results"]["applied_qty"] == 24
+    assert client.get("/api/scenarios/999999").status_code == 404
+
+
+def test_orchestration_edges_match_signal_flow():
+    from app.api.routes import DAG_EDGES
+
+    pairs = {(e["from"], e["to"]) for e in DAG_EDGES}
+    assert ("sales_anomaly", "demand") in pairs
+    assert ("product_similarity", "demand") in pairs
+    assert ("demand", "optimizer") in pairs
+    assert ("supplier_eta", "optimizer") in pairs
+    assert ("demand_interval", "excess_risk") in pairs
+    assert all(e["from"] != "data" for e in DAG_EDGES)

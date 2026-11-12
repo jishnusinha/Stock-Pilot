@@ -6,7 +6,8 @@ Base: `http://127.0.0.1:8000` · OpenAPI: `/docs`
 |---|---|---|
 | GET | `/api/health` | DB + model count, demo date |
 | GET | `/api/dashboard` | KPIs, forecast series, alerts, risk, recommendation |
-| GET | `/api/products` | page, page_size, search, category, supplier_id, risk, sort |
+| GET | `/api/inventory/summary` | catalog-wide SKU, low-stock, overstock, average days of supply, categories |
+| GET | `/api/products` | page, page_size, search, category, supplier_id, risk, stock_health, sort, direction |
 | GET | `/api/products/{id}` | detail + sales + forecast + movements |
 | POST | `/api/products/{id}/adjust-stock` | `{delta, reason}` — rejects negative stock |
 | GET | `/api/products/export.csv` | filtered CSV |
@@ -14,6 +15,7 @@ Base: `http://127.0.0.1:8000` · OpenAPI: `/docs`
 | GET | `/api/forecasts/{id}` | p10/p50/p90 series |
 | POST | `/api/simulate` | what-if; no mutation; `SIMULATED_SUPPLY` |
 | POST/GET | `/api/scenarios` | save / list |
+| GET | `/api/scenarios/{id}` | stored inputs and results |
 | POST | `/api/recommendations/{id}/propose` | draft reorder |
 | GET | `/api/reorders` | list |
 | POST | `/api/reorders/{id}/approve\|reject\|receive` | receive adds stock once |

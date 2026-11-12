@@ -98,6 +98,7 @@ cd backend
 .\.venv\Scripts\python -m pytest -q
 
 cd ..\frontend
+npm test
 npm run build
 
 # or
@@ -118,6 +119,7 @@ cd backend
 - [Architecture](docs/architecture.md) · [API contract](docs/api-contract.md)  
 - [Model methods](docs/model-methods.md) · [Agent dependency contract](docs/agent-dependency-contract.md)  
 - [Tradeoffs](docs/tradeoffs.md) · [Local verification](docs/local-verification.md)  
+- [UI v2 audit](docs/ui-v2-audit.md) · [UI v2 verification](docs/ui-v2-verification.md)  
 - [Interview demo](docs/interview-demo.md) · [Optional M5](docs/optional-m5.md)  
 - Progress: [cursor-prompts/PROGRESS.md](cursor-prompts/PROGRESS.md) · Repair: [cursor-prompts/REPAIR_PROGRESS.md](cursor-prompts/REPAIR_PROGRESS.md)
 

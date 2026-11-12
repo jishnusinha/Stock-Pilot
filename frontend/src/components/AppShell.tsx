@@ -1,12 +1,19 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
+const COMPACT_KEY = "stockpilot-sidebar-compact";
+
 export function AppShell() {
   const [mobileNav, setMobileNav] = useState(false);
+  const [compact, setCompact] = useState(() => localStorage.getItem(COMPACT_KEY) === "1");
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
+
+  useEffect(() => {
+    localStorage.setItem(COMPACT_KEY, compact ? "1" : "0");
+  }, [compact]);
 
   function onSearchChange(v: string) {
     setSearch(v);
@@ -17,7 +24,15 @@ export function AppShell() {
 
   return (
     <div className="app-shell">
-      <Sidebar mobileOpen={mobileNav} onNavigate={() => setMobileNav(false)} />
+      {mobileNav ? (
+        <button type="button" className="nav-backdrop" aria-label="Close menu" onClick={() => setMobileNav(false)} />
+      ) : null}
+      <Sidebar
+        mobileOpen={mobileNav}
+        compact={compact}
+        onNavigate={() => setMobileNav(false)}
+        onToggleCompact={() => setCompact((c) => !c)}
+      />
       <div className="app-main">
         <Topbar
           onMenuClick={() => setMobileNav((o) => !o)}
@@ -28,11 +43,6 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
-      <style>{`
-        @media (max-width: 768px) {
-          #mobile-menu-btn { display: inline-flex !important; }
-        }
-      `}</style>
     </div>
   );
 }

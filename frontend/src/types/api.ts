@@ -82,6 +82,8 @@ export interface ProductRow {
   unit_cost_paise?: number;
   reorder_point?: number;
   pack_size?: number;
+  sell_through?: number | null;
+  forecast_28d?: number | null;
 }
 
 export interface ProductsListResponse {
@@ -89,6 +91,16 @@ export interface ProductsListResponse {
   total: number;
   page: number;
   page_size: number;
+}
+
+export interface InventorySummary {
+  total_skus: number;
+  low_stock: number;
+  overstocked: number;
+  avg_days_of_supply: number | null;
+  low_stock_rule: string;
+  overstock_rule: string;
+  categories: string[];
 }
 
 export interface ProductDetail {
@@ -228,6 +240,12 @@ export interface ScenarioSummary {
   name: string;
   product_id: number;
   created_at: string;
+  provenance?: string;
+}
+
+export interface ScenarioDetail extends ScenarioSummary {
+  inputs: Partial<SimulateRequest> & Record<string, unknown>;
+  results?: Partial<SimulateResponse> | null;
 }
 
 export interface ReorderCreateRequest {

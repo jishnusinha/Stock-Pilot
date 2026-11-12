@@ -9,7 +9,9 @@ import type {
   ProductCreateRequest,
   ProductDetail,
   ProductUpdateRequest,
+  InventorySummary,
   ProductsListResponse,
+  ScenarioDetail,
   ReorderCreateRequest,
   ReorderRow,
   SaveScenarioRequest,
@@ -91,6 +93,10 @@ export const api = {
     return fetchJson<DashboardResponse>("/api/dashboard", { signal });
   },
 
+  inventorySummary(signal?: AbortSignal) {
+    return fetchJson<InventorySummary>("/api/inventory/summary", { signal });
+  },
+
   products(
     params: Record<string, string | number | undefined>,
     signal?: AbortSignal,
@@ -170,6 +176,10 @@ export const api = {
 
   listScenarios(signal?: AbortSignal) {
     return fetchJson<ScenarioSummary[]>("/api/scenarios", { signal });
+  },
+
+  getScenario(id: number, signal?: AbortSignal) {
+    return fetchJson<ScenarioDetail>(`/api/scenarios/${id}`, { signal });
   },
 
   proposeRecommendation(id: number, signal?: AbortSignal) {

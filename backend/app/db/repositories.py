@@ -42,6 +42,38 @@ def count_products(conn: sqlite3.Connection) -> int:
     return int(conn.execute("SELECT COUNT(*) FROM products WHERE is_active=1").fetchone()[0])
 
 
+_SORT_ASC = {
+    "sku": "p.sku ASC",
+    "name": "p.name ASC",
+    "category": "p.category ASC, p.sku ASC",
+    "supplier": "s.name ASC, p.sku ASC",
+    "stock": "p.stock_on_hand ASC, p.sku ASC",
+    "price": "p.selling_price_paise ASC, p.sku ASC",
+    "forecast": "COALESCE(r.forecast_28d, -1) ASC, p.sku ASC",
+    "risk": "CASE LOWER(COALESCE(r.risk_level,'')) WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3 END ASC, p.sku ASC",
+    "dos": "COALESCE(r.days_of_supply, 999999) ASC, p.sku ASC",
+}
+_SORT_DESC = {
+    "sku": "p.sku DESC",
+    "name": "p.name DESC",
+    "category": "p.category DESC, p.sku ASC",
+    "supplier": "s.name DESC, p.sku ASC",
+    "stock": "p.stock_on_hand DESC, p.sku ASC",
+    "price": "p.selling_price_paise DESC, p.sku ASC",
+    "forecast": "COALESCE(r.forecast_28d, -1) DESC, p.sku ASC",
+    "risk": "CASE LOWER(COALESCE(r.risk_level,'')) WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3 END DESC, p.sku ASC",
+    "dos": "COALESCE(r.days_of_supply, -1) DESC, p.sku ASC",
+}
+# Historical defaults when the client does not send an explicit direction.
+_SORT_LEGACY = {
+    "sku": "p.sku ASC",
+    "name": "p.name ASC",
+    "stock": "p.stock_on_hand DESC",
+    "risk": "CASE r.risk_level WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, p.sku",
+    "dos": "COALESCE(r.days_of_supply, 9999) ASC",
+}
+
+
 def list_products(
     conn: sqlite3.Connection,
     *,
@@ -49,16 +81,18 @@ def list_products(
     category: str | None = None,
     supplier_id: int | None = None,
     risk: str | None = None,
+    stock_health: str | None = None,
     sort: str = "sku",
+    direction: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[dict], int]:
     where = ["p.is_active = 1"]
     params: list[Any] = []
     if search:
-        where.append("(p.name LIKE ? OR p.sku LIKE ?)")
+        where.append("(p.name LIKE ? OR p.sku LIKE ? OR s.name LIKE ?)")
         q = f"%{search}%"
-        params.extend([q, q])
+        params.extend([q, q, q])
     if category:
         where.append("p.category = ?")
         params.append(category)
@@ -71,15 +105,20 @@ def list_products(
             placeholders = ",".join("?" for _ in levels)
             where.append(f"LOWER(COALESCE(r.risk_level,'unknown')) IN ({placeholders})")
             params.extend(levels)
+    health = (stock_health or "").strip().lower()
+    if health == "low":
+        where.append(
+            "(LOWER(COALESCE(r.risk_level,'')) = 'high' "
+            "OR (r.days_of_supply IS NOT NULL AND r.days_of_supply <= 14))"
+        )
+    elif health == "overstock":
+        where.append("(r.days_of_supply IS NOT NULL AND r.days_of_supply >= 90)")
 
-    sort_map = {
-        "sku": "p.sku ASC",
-        "name": "p.name ASC",
-        "stock": "p.stock_on_hand DESC",
-        "risk": "CASE r.risk_level WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, p.sku",
-        "dos": "COALESCE(r.days_of_supply, 9999) ASC",
-    }
-    order = sort_map.get(sort, "p.sku ASC")
+    if direction is None:
+        order = _SORT_LEGACY.get(sort, "p.sku ASC")
+    else:
+        table = _SORT_DESC if str(direction).lower() == "desc" else _SORT_ASC
+        order = table.get(sort, _SORT_ASC["sku"])
     where_sql = " AND ".join(where)
 
     total = conn.execute(
@@ -94,7 +133,7 @@ def list_products(
     ).fetchone()[0]
 
     page = max(1, page)
-    page_size = min(max(1, page_size), 100)
+    page_size = min(max(1, page_size), 250)
     offset = (page - 1) * page_size
     rows = conn.execute(
         f"""
@@ -111,6 +150,66 @@ def list_products(
         [*params, page_size, offset],
     ).fetchall()
     return [dict(r) for r in rows], int(total)
+
+
+def inventory_summary(conn: sqlite3.Connection) -> dict:
+    """Catalog-wide inventory health. Not limited to a page of products."""
+    row = conn.execute(
+        """
+        SELECT
+          COUNT(*) AS total_skus,
+          SUM(CASE
+                WHEN LOWER(COALESCE(r.risk_level,'')) = 'high'
+                  OR (r.days_of_supply IS NOT NULL AND r.days_of_supply <= 14)
+                THEN 1 ELSE 0 END) AS low_stock,
+          SUM(CASE
+                WHEN r.days_of_supply IS NOT NULL AND r.days_of_supply >= 90
+                THEN 1 ELSE 0 END) AS overstocked,
+          AVG(r.days_of_supply) AS avg_days_of_supply
+        FROM products p
+        LEFT JOIN product_risk_cache r ON r.product_id = p.id
+        WHERE p.is_active = 1
+        """
+    ).fetchone()
+    categories = [
+        r[0]
+        for r in conn.execute(
+            """
+            SELECT DISTINCT category FROM products
+            WHERE is_active = 1 AND category IS NOT NULL AND TRIM(category) != ''
+            ORDER BY category
+            """
+        ).fetchall()
+    ]
+    avg = row["avg_days_of_supply"]
+    return {
+        "total_skus": int(row["total_skus"] or 0),
+        "low_stock": int(row["low_stock"] or 0),
+        "overstocked": int(row["overstocked"] or 0),
+        "avg_days_of_supply": float(avg) if avg is not None else None,
+        "low_stock_rule": "risk_level = high OR days_of_supply <= 14",
+        "overstock_rule": "days_of_supply >= 90",
+        "categories": categories,
+    }
+
+
+def get_scenario(conn: sqlite3.Connection, scenario_id: int) -> dict | None:
+    row = conn.execute(
+        "SELECT * FROM scenario_runs WHERE id=?", (scenario_id,)
+    ).fetchone()
+    if not row:
+        return None
+    data = dict(row)
+    try:
+        data["inputs"] = json.loads(data.get("input_json") or "{}")
+    except json.JSONDecodeError:
+        data["inputs"] = {}
+    try:
+        raw = data.get("result_json")
+        data["results"] = json.loads(raw) if raw else None
+    except json.JSONDecodeError:
+        data["results"] = None
+    return data
 
 
 def create_product(conn: sqlite3.Connection, data: dict) -> dict:

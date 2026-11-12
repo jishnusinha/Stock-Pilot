@@ -1,18 +1,6 @@
 import type { ReactNode } from "react";
 
-type Variant = "default" | "mint" | "risk" | "warning" | "muted";
-
-const styles: Record<Variant, React.CSSProperties> = {
-  default: { background: "#f3f4f6", color: varMuted() },
-  mint: { background: "var(--color-mint)", color: "var(--color-primary)" },
-  risk: { background: "var(--color-risk-bg)", color: "var(--color-risk)" },
-  warning: { background: "var(--color-warning-bg)", color: "var(--color-warning)" },
-  muted: { background: "#eef0ec", color: "var(--color-text-muted)" },
-};
-
-function varMuted() {
-  return "var(--color-text-muted)";
-}
+type Variant = "default" | "mint" | "risk" | "warning" | "muted" | "info";
 
 export function Badge({
   children,
@@ -21,27 +9,23 @@ export function Badge({
   children: ReactNode;
   variant?: Variant;
 }) {
-  return (
-    <span
-      className="badge"
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        padding: "2px 8px",
-        borderRadius: "var(--radius-pill)",
-        fontSize: 12,
-        fontWeight: 500,
-        ...styles[variant],
-      }}
-    >
-      {children}
-    </span>
-  );
+  return <span className={`badge badge-${variant}`}>{children}</span>;
 }
 
 export function RiskBadge({ level }: { level: string }) {
   const l = level.toLowerCase();
-  if (l === "high") return <Badge variant="risk">High risk</Badge>;
+  if (l === "high") return <Badge variant="risk">High</Badge>;
   if (l === "medium") return <Badge variant="warning">Medium</Badge>;
-  return <Badge variant="mint">Low</Badge>;
+  if (l === "low") return <Badge variant="mint">Low</Badge>;
+  if (l === "overstock") return <Badge variant="info">Overstock</Badge>;
+  return <Badge variant="muted">{level}</Badge>;
+}
+
+export function StatusBadge({ status }: { status: string }) {
+  const s = status.toLowerCase();
+  if (s === "pending" || s === "draft") return <Badge variant="warning">Pending</Badge>;
+  if (s === "approved") return <Badge variant="mint">Approved</Badge>;
+  if (s === "rejected" || s === "error" || s === "failed") return <Badge variant="risk">Rejected</Badge>;
+  if (s === "received" || s === "ok" || s === "active") return <Badge variant="info">{status}</Badge>;
+  return <Badge variant="muted">{status}</Badge>;
 }

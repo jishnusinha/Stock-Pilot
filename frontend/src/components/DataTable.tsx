@@ -35,33 +35,18 @@ export function DataTable<T extends object>({
   onSort?: (key: string) => void;
 }) {
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+    <div className="table-wrap">
+      <table className="data-table">
         <thead>
-          <tr style={{ borderBottom: "1px solid var(--color-border)", textAlign: "left" }}>
+          <tr>
             {columns.map((col) => (
-              <th
-                key={col.key}
-                style={{
-                  padding: "10px 12px",
-                  fontWeight: 600,
-                  color: "var(--color-text-muted)",
-                  textAlign: col.align ?? "left",
-                }}
-              >
+              <th key={col.key} style={{ textAlign: col.align ?? "left" }}>
                 {col.sortable && onSort ? (
                   <button
                     type="button"
                     className="btn-sort"
                     onClick={() => onSort(col.key)}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      fontWeight: 600,
-                      color: "inherit",
-                      padding: 0,
-                    }}
+                    aria-sort={sortKey === col.key ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
                   >
                     {col.header}
                     {sortKey === col.key ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
@@ -80,26 +65,20 @@ export function DataTable<T extends object>({
             return (
               <tr
                 key={String(id)}
+                className={`${onSelect ? "clickable" : ""}${selected ? " selected" : ""}`}
                 onClick={() => onSelect?.(row)}
                 onKeyDown={(e) => {
+                  if (!onSelect) return;
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    onSelect?.(row);
+                    onSelect(row);
                   }
                 }}
                 tabIndex={onSelect ? 0 : undefined}
-                style={{
-                  borderBottom: "1px solid var(--color-border)",
-                  cursor: onSelect ? "pointer" : "default",
-                  background: selected ? "var(--color-mint)" : "transparent",
-                }}
+                aria-selected={onSelect ? selected : undefined}
               >
                 {columns.map((col) => (
-                  <td
-                    key={col.key}
-                    style={{ padding: "12px", textAlign: col.align ?? "left" }}
-                    className="tabular"
-                  >
+                  <td key={col.key} style={{ textAlign: col.align ?? "left" }} className="tabular">
                     {col.render(row)}
                   </td>
                 ))}
@@ -108,6 +87,65 @@ export function DataTable<T extends object>({
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+export function TablePagination({
+  page,
+  pageSize,
+  total,
+  onPage,
+  onPageSize,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  onPage: (page: number) => void;
+  onPageSize?: (size: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = Math.min(page * pageSize, total);
+  return (
+    <div className="table-foot">
+      <span className="tabular">
+        Showing {start}–{end} of {total}
+      </span>
+      <div className="pager">
+        {onPageSize ? (
+          <label className="tabular" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            Rows
+            <select
+              className="select"
+              style={{ width: 72 }}
+              value={pageSize}
+              aria-label="Rows per page"
+              onChange={(e) => onPageSize(Number(e.target.value))}
+            >
+              {[10, 20, 50].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <button type="button" className="btn btn-secondary btn-sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+          Previous
+        </button>
+        <span className="tabular">
+          {page} / {totalPages}
+        </span>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={page >= totalPages}
+          onClick={() => onPage(page + 1)}
+        >
+          Next
+        </button>
+      </div>
     </div>
   );
 }

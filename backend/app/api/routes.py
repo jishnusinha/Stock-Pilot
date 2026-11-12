@@ -24,22 +24,23 @@ from app.services.simulate_api import run_simulate
 
 router = APIRouter(prefix="/api")
 
+# Edges match orchestrator signal flow (see docs/agent-dependency-contract.md).
+# First-wave agents read sales/catalog features directly; there is no "data" model node.
 DAG_EDGES = [
-    {"from": "data", "to": "calendar_effect"},
-    {"from": "data", "to": "price_response"},
-    {"from": "data", "to": "intermittence"},
-    {"from": "data", "to": "sales_anomaly"},
-    {"from": "data", "to": "product_similarity"},
     {"from": "calendar_effect", "to": "demand"},
     {"from": "price_response", "to": "demand"},
     {"from": "intermittence", "to": "demand"},
+    {"from": "sales_anomaly", "to": "demand"},
+    {"from": "product_similarity", "to": "demand"},
     {"from": "demand", "to": "demand_interval"},
-    {"from": "data", "to": "supplier_eta"},
     {"from": "demand", "to": "stockout_risk"},
     {"from": "demand_interval", "to": "stockout_risk"},
     {"from": "supplier_eta", "to": "stockout_risk"},
     {"from": "demand", "to": "excess_risk"},
+    {"from": "demand_interval", "to": "excess_risk"},
     {"from": "supplier_eta", "to": "excess_risk"},
+    {"from": "demand", "to": "optimizer"},
+    {"from": "supplier_eta", "to": "optimizer"},
     {"from": "stockout_risk", "to": "optimizer"},
     {"from": "excess_risk", "to": "optimizer"},
 ]
@@ -127,16 +128,22 @@ def products(
     category: str | None = None,
     supplier_id: int | None = None,
     risk: str | None = None,
+    stock_health: str | None = None,
     sort: str = "sku",
+    direction: str | None = None,
     conn: sqlite3.Connection = Depends(get_db),
 ) -> Any:
+    if direction is not None and direction not in ("asc", "desc"):
+        raise HTTPException(400, "direction must be asc or desc")
     rows, total = repo.list_products(
         conn,
         search=search,
         category=category,
         supplier_id=supplier_id,
         risk=risk,
+        stock_health=stock_health,
         sort=sort,
+        direction=direction,
         page=page,
         page_size=page_size,
     )
@@ -161,6 +168,11 @@ def products(
         for r in rows
     ]
     return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+@router.get("/inventory/summary", response_model=S.InventorySummary)
+def inventory_summary(conn: sqlite3.Connection = Depends(get_db)) -> Any:
+    return repo.inventory_summary(conn)
 
 
 @router.get("/products/export.csv")
@@ -398,6 +410,22 @@ def list_scenarios(conn: sqlite3.Connection = Depends(get_db)) -> Any:
         }
         for r in rows
     ]
+
+
+@router.get("/scenarios/{scenario_id}", response_model=S.ScenarioDetail)
+def scenario_detail(scenario_id: int, conn: sqlite3.Connection = Depends(get_db)) -> Any:
+    row = repo.get_scenario(conn, scenario_id)
+    if not row:
+        raise HTTPException(404, "Scenario not found")
+    return {
+        "id": row["id"],
+        "name": row.get("name") or f"Scenario {row['id']}",
+        "product_id": row["product_id"],
+        "created_at": row["created_at"],
+        "provenance": row.get("provenance"),
+        "inputs": row.get("inputs") or {},
+        "results": row.get("results"),
+    }
 
 
 @router.post("/recommendations/{rec_id}/propose", response_model=S.ReorderRow)

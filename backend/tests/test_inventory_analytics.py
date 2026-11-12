@@ -79,7 +79,9 @@ def test_conservation_continuity_and_reconciliation(tmp_db):
     forced = build_analytics(tmp_db, seed=11, force=True)
     assert forced["reused"] is False
     assert forced["checksum"] == first["checksum"]
-    assert tmp_db.execute("SELECT COUNT(*) FROM analytics_runs").fetchone()[0] == 1
+    assert tmp_db.execute("SELECT COUNT(*) FROM analytics_runs").fetchone()[0] == 2
+    assert tmp_db.execute("SELECT COUNT(*) FROM analytics_runs WHERE status='complete'").fetchone()[0] == 1
+    assert tmp_db.execute("SELECT COUNT(*) FROM analytics_runs WHERE status='superseded'").fetchone()[0] == 1
 
     sales_after = tmp_db.execute("SELECT COUNT(*), COALESCE(SUM(units), 0) FROM sales").fetchone()
     stock_after = tmp_db.execute("SELECT COALESCE(SUM(stock_on_hand), 0) FROM products").fetchone()[0]

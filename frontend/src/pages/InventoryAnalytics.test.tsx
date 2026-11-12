@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter, useNavigate } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { InventoryAnalytics } from "./InventoryAnalytics";
 
 class ResizeObserverStub {
@@ -12,13 +12,13 @@ vi.stubGlobal("ResizeObserver", ResizeObserverStub);
 
 vi.mock("../api/client", () => ({
   api: {
-    analyticsOverview: () => Promise.resolve({
+    analyticsOverview: (params?: { segment?: string }) => Promise.resolve({
       ready: true,
       period_start: "2026-01-01",
       period_end: "2026-02-28",
       period_days: 59,
-      inventory_value_paise: 250000,
-      stock_units: 40,
+      inventory_value_paise: params?.segment === "AX" ? 424200 : 250000,
+      stock_units: params?.segment === "AX" ? 4 : 40,
       live_inventory_value_paise: 250000,
       live_stock_units: 40,
       turnover: 2.5,
@@ -26,6 +26,19 @@ vi.mock("../api/client", () => ({
       inventory_to_sales: 0.4,
       days_inventory_outstanding: 23.6,
       excess_inventory_value_paise: 10000,
+      freshness: "fresh",
+      source_fingerprint: "abc123def4567890",
+      algorithm_version: "v1",
+      run_id: 1,
+      reconciliation: {
+        products_up: 2,
+        products_down: 1,
+        products_matched: 0,
+        up_value_paise: 3000,
+        down_value_paise: 800,
+        absolute_value_paise: 3800,
+        explanation: "Terminal reconciliation aligns the final day to the frozen stock anchor.",
+      },
       insights: [{ id: "top", text: "Dairy Item 1 holds the largest period-end inventory value." }],
       cost_model: "Fixed catalog unit cost.",
       reconciliation_note: "Snapshots are immutable.",
@@ -84,6 +97,8 @@ vi.mock("../api/client", () => ({
   },
 }));
 
+afterEach(() => cleanup());
+
 describe("inventory analytics", () => {
   it("switches ranking and opens a product from the list", async () => {
     render(
@@ -97,6 +112,43 @@ describe("inventory analytics", () => {
     fireEvent.click(screen.getByRole("button", { name: /Quantity Leader/i }));
     expect(await screen.findByRole("button", { name: "Simulate decision" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Explain recommendation" })).toBeTruthy();
+  });
+
+  it("filters KPIs from an ABC cell and restores them when cleared", async () => {
+    render(
+      <MemoryRouter initialEntries={["/analytics"]}>
+        <InventoryAnalytics />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("Reconstruction quality")).toBeTruthy();
+    expect(screen.getByText("Historical as-of-period, stock on 2026-02-28. Current operational stock ₹2,500")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /AX/ }));
+    expect(await screen.findByText("₹4,242")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear cell" }));
+    expect(await screen.findByText("Historical as-of-period, stock on 2026-02-28. Current operational stock ₹2,500")).toBeTruthy();
+  });
+
+  it("restores a deep link and supports going back from a month", async () => {
+    function Harness() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button type="button" onClick={() => navigate(-1)}>History back</button>
+          <InventoryAnalytics />
+        </>
+      );
+    }
+    render(
+      <MemoryRouter initialEntries={["/analytics?cell=AX&category=Dairy"]}>
+        <Harness />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole("button", { name: /AX/, pressed: true })).toBeTruthy();
+    expect((screen.getByLabelText("Category") as HTMLSelectElement).value).toBe("Dairy");
+    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+    expect(await screen.findByRole("button", { name: /AX/, pressed: false })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "History back" }));
+    expect(await screen.findByRole("button", { name: /AX/, pressed: true })).toBeTruthy();
   });
 
   it("selects a month from the keyboard-accessible chips", async () => {

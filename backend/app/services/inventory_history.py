@@ -17,8 +17,16 @@ from datetime import datetime, timezone
 
 import numpy as np
 
+from app.services.analytics_fingerprint import (
+    ALGORITHM_VERSION,
+    anchor_fingerprint,
+    backfill_missing_fingerprints,
+    live_anchor_fingerprint,
+    source_fingerprint,
+)
+
 PROVENANCE = "SYNTHETIC_RECONSTRUCTED"
-VERSION = "v1"
+VERSION = ALGORITHM_VERSION
 SOURCE = "SYNTHETIC_RECONSTRUCTED"
 
 _SNAP_SQL = """
@@ -67,30 +75,79 @@ def _summary(row: sqlite3.Row, *, reused: bool) -> dict:
         "reconciled_up": notes.get("reconciled_up"),
         "reconciled_down": notes.get("reconciled_down"),
         "reconciled_matched": notes.get("reconciled_matched"),
+        "recon_up_units": notes.get("recon_up_units"),
+        "recon_down_units": notes.get("recon_down_units"),
+        "recon_up_value_paise": notes.get("recon_up_value_paise"),
+        "recon_down_value_paise": notes.get("recon_down_value_paise"),
+        "net_adjustment_units": notes.get("net_adjustment_units"),
+        "absolute_adjustment_units": notes.get("absolute_adjustment_units"),
+        "net_adjustment_value_paise": notes.get("net_adjustment_value_paise"),
+        "absolute_adjustment_value_paise": notes.get("absolute_adjustment_value_paise"),
+        "source_fingerprint": row["source_fingerprint"] if "source_fingerprint" in row.keys() else None,
+        "anchor_fingerprint": row["anchor_fingerprint"] if "anchor_fingerprint" in row.keys() else None,
         "generated_at": row["generated_at"],
+        "algorithm_version": row["version"],
     }
 
 
 def build_analytics(conn: sqlite3.Connection, *, seed: int = 42, force: bool = False) -> dict:
     """Create or reuse a reconstructed ledger and daily snapshots.
 
-    Safe to rerun. Existing sales, stock, forecasts, and model rows are not modified.
-    ``force`` replaces the run for this seed and snapshot date.
+    A completed run is reused only when its source fingerprint, seed, algorithm
+    version, and snapshot date still match. Live stock is an anchor, not part of
+    that fingerprint. ``force`` writes a new run and marks the previous complete
+    run superseded. It does not delete the previous snapshots.
     """
+    try:
+        return _build_analytics_unchecked(conn, seed=seed, force=force)
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def _build_analytics_unchecked(conn: sqlite3.Connection, *, seed: int = 42, force: bool = False) -> dict:
     date_row = conn.execute("SELECT MIN(sale_date) AS a, MAX(sale_date) AS b, COUNT(*) AS n FROM sales").fetchone()
     if not date_row or not date_row["n"] or not date_row["b"]:
         raise ValueError("No sales rows are available to reconstruct inventory history")
     snapshot_date = str(date_row["b"])
+    backfill_missing_fingerprints(conn)
+    fingerprint = source_fingerprint(conn, seed=int(seed), snapshot_date=snapshot_date)
 
     existing = conn.execute(
         """
         SELECT * FROM analytics_runs
         WHERE dataset_source=? AND seed=? AND snapshot_date=? AND version=?
+          AND status='complete' AND source_fingerprint=?
+        ORDER BY id DESC
+        LIMIT 1
         """,
-        (SOURCE, int(seed), snapshot_date, VERSION),
+        (SOURCE, int(seed), snapshot_date, VERSION, fingerprint),
     ).fetchone()
-    if existing and existing["status"] == "complete" and not force:
-        return _summary(existing, reused=True)
+    if existing and not force:
+        summary = _summary(existing, reused=True)
+        summary.update({"stale": False, "regenerated": False, "freshness": "fresh"})
+        return summary
+
+    prior = conn.execute(
+        """
+        SELECT * FROM analytics_runs
+        WHERE dataset_source=? AND seed=? AND version=? AND status='complete'
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (SOURCE, int(seed), VERSION),
+    ).fetchone()
+    if prior and not force:
+        summary = _summary(prior, reused=False)
+        summary.update(
+            {
+                "stale": True,
+                "regenerated": False,
+                "freshness": "stale",
+                "current_source_fingerprint": fingerprint,
+            }
+        )
+        return summary
 
     products = conn.execute(
         """
@@ -105,6 +162,9 @@ def build_analytics(conn: sqlite3.Connection, *, seed: int = 42, force: bool = F
     ).fetchall()
     if not products:
         raise ValueError("No active products are available to reconstruct inventory history")
+    anchor_pairs = [(int(product["id"]), int(product["stock_on_hand"])) for product in products]
+    frozen_anchor = anchor_fingerprint(anchor_pairs)
+    anchor_units = sum(stock for _, stock in anchor_pairs)
 
     demand: dict[int, dict[str, tuple[int, int]]] = {}
     dates: set[str] = set()
@@ -119,20 +179,27 @@ def build_analytics(conn: sqlite3.Connection, *, seed: int = 42, force: bool = F
         dates.add(str(row["sale_date"]))
     calendar = sorted(dates)
 
-    if existing:
-        rid = int(existing["id"])
-        conn.execute("DELETE FROM inventory_receipts WHERE run_id=?", (rid,))
-        conn.execute("DELETE FROM inventory_ledger WHERE run_id=?", (rid,))
-        conn.execute("DELETE FROM inventory_daily_snapshots WHERE run_id=?", (rid,))
-        conn.execute("DELETE FROM analytics_runs WHERE id=?", (rid,))
-
     cur = conn.execute(
         """
         INSERT INTO analytics_runs(
-          dataset_source, seed, snapshot_date, generated_at, version, status, product_count, day_count, notes
-        ) VALUES (?,?,?,?,?,?,?,?,?)
+          dataset_source, seed, snapshot_date, generated_at, version, status, product_count, day_count, notes,
+          source_fingerprint, anchor_fingerprint, anchor_units
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         """,
-        (SOURCE, int(seed), snapshot_date, _now(), VERSION, "running", len(products), len(calendar), None),
+        (
+            SOURCE,
+            int(seed),
+            snapshot_date,
+            _now(),
+            VERSION,
+            "running",
+            len(products),
+            len(calendar),
+            None,
+            fingerprint,
+            frozen_anchor,
+            anchor_units,
+        ),
     )
     run_id = int(cur.lastrowid)
 
@@ -143,6 +210,10 @@ def build_analytics(conn: sqlite3.Connection, *, seed: int = 42, force: bool = F
     reconciled_up = 0
     reconciled_down = 0
     reconciled_matched = 0
+    recon_up_units = 0
+    recon_down_units = 0
+    recon_up_value = 0
+    recon_down_value = 0
     snaps: list[tuple] = []
     ledgers: list[tuple] = []
     receipts: list[tuple] = []
@@ -215,11 +286,15 @@ def build_analytics(conn: sqlite3.Connection, *, seed: int = 42, force: bool = F
                         }
                     )
                     reconciled_up += 1
+                    recon_up_units += delta
+                    recon_up_value += delta * cost
                 elif delta < 0:
                     writeoff += -delta
                     closing += delta
                     reconcile_writeoff = True
                     reconciled_down += 1
+                    recon_down_units += -delta
+                    recon_down_value += (-delta) * cost
                 else:
                     reconciled_matched += 1
 
@@ -328,6 +403,21 @@ def build_analytics(conn: sqlite3.Connection, *, seed: int = 42, force: bool = F
         "reconciled_up": reconciled_up,
         "reconciled_down": reconciled_down,
         "reconciled_matched": reconciled_matched,
+        "recon_up_units": recon_up_units,
+        "recon_down_units": recon_down_units,
+        "recon_up_value_paise": recon_up_value,
+        "recon_down_value_paise": recon_down_value,
+        "net_adjustment_units": recon_up_units - recon_down_units,
+        "absolute_adjustment_units": recon_up_units + recon_down_units,
+        "net_adjustment_value_paise": recon_up_value - recon_down_value,
+        "absolute_adjustment_value_paise": recon_up_value + recon_down_value,
+        "reconciliation_date": snapshot_date,
+        "source_fingerprint": fingerprint,
+        "anchor_fingerprint": frozen_anchor,
+        "retention": (
+            "Previous complete runs are marked superseded and kept. "
+            "They are removed only by an explicit database reset, not by build-analytics."
+        ),
         "cost_model": "Fixed catalog unit_cost_paise. Revenue uses the sales-row price on fulfilled units only.",
         "supplier_performance": (
             "Receipt delay is drawn from supplier.delivery_reliability. "
@@ -336,15 +426,168 @@ def build_analytics(conn: sqlite3.Connection, *, seed: int = 42, force: bool = F
         ),
         "demand_vs_sales": "sales.units remain demand. sold_units are fulfilled. unmet_demand_units = demand - fulfilled.",
     }
-    conn.execute(
-        """
-        UPDATE analytics_runs
-        SET status='complete', generated_at=?, product_count=?, day_count=?, notes=?
-        WHERE id=?
-        """,
-        (_now(), len(products), len(calendar), json.dumps(notes), run_id),
-    )
-    conn.commit()
+    try:
+        _validate_run(conn, run_id)
+        if force:
+            conn.execute(
+                """
+                UPDATE analytics_runs
+                SET status='superseded'
+                WHERE dataset_source=? AND seed=? AND version=? AND status='complete' AND id!=?
+                """,
+                (SOURCE, int(seed), VERSION, run_id),
+            )
+        conn.execute(
+            """
+            UPDATE analytics_runs
+            SET status='complete', generated_at=?, product_count=?, day_count=?, notes=?
+            WHERE id=?
+            """,
+            (_now(), len(products), len(calendar), json.dumps(notes), run_id),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     row = conn.execute("SELECT * FROM analytics_runs WHERE id=?", (run_id,)).fetchone()
     assert row is not None
-    return _summary(row, reused=False)
+    summary = _summary(row, reused=False)
+    summary.update({"stale": False, "regenerated": True, "freshness": "fresh"})
+    return summary
+
+
+def _validate_run(conn: sqlite3.Connection, run_id: int) -> None:
+    bad = conn.execute(
+        """
+        SELECT COUNT(*) FROM inventory_daily_snapshots
+        WHERE run_id=? AND (
+          closing_stock != opening_stock + received_units + returned_units
+            + adjustment_units - sold_units - writeoff_units
+          OR closing_stock < 0
+          OR opening_stock < 0
+          OR closing_value_paise != closing_stock * unit_cost_paise
+          OR sold_units > demand_units
+          OR unmet_demand_units != demand_units - sold_units
+        )
+        """,
+        (run_id,),
+    ).fetchone()[0]
+    if bad:
+        raise RuntimeError(f"Reconstruction failed validation with {int(bad)} inconsistent snapshot rows")
+    gaps = conn.execute(
+        """
+        SELECT COUNT(*) FROM inventory_daily_snapshots a
+        JOIN inventory_daily_snapshots b
+          ON a.run_id = b.run_id AND a.product_id = b.product_id
+         AND b.snapshot_date = date(a.snapshot_date, '+1 day')
+        WHERE a.run_id=? AND a.closing_stock != b.opening_stock
+        """,
+        (run_id,),
+    ).fetchone()[0]
+    if gaps:
+        raise RuntimeError(f"Reconstruction failed validation with {int(gaps)} continuity gaps")
+
+
+def analytics_status(conn: sqlite3.Connection, *, seed: int | None = None) -> dict:
+    """Report the active run, fingerprint, and whether historical inputs are stale."""
+    backfill_missing_fingerprints(conn)
+    date_row = conn.execute("SELECT MIN(sale_date) AS a, MAX(sale_date) AS b, COUNT(*) AS n FROM sales").fetchone()
+    run = conn.execute(
+        """
+        SELECT * FROM analytics_runs
+        WHERE status='complete'
+        ORDER BY generated_at DESC, id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    snapshot_date = str(date_row["b"]) if date_row and date_row["b"] else None
+    use_seed = int(seed) if seed is not None else (int(run["seed"]) if run is not None else 42)
+    current = source_fingerprint(conn, seed=use_seed, snapshot_date=snapshot_date or "") if snapshot_date else None
+    live_anchor = live_anchor_fingerprint(conn) if date_row and date_row["n"] else None
+    if run is None:
+        freshness = "missing"
+    elif (
+        current is not None
+        and run["source_fingerprint"] == current
+        and run["version"] == VERSION
+        and run["snapshot_date"] == snapshot_date
+        and int(run["seed"]) == use_seed
+    ):
+        freshness = "fresh"
+    else:
+        freshness = "stale"
+    notes = {}
+    if run is not None:
+        try:
+            notes = json.loads(run["notes"] or "{}")
+        except json.JSONDecodeError:
+            notes = {}
+    anchor_drift = bool(
+        run is not None and live_anchor and run["anchor_fingerprint"] and run["anchor_fingerprint"] != live_anchor
+    )
+    kept = conn.execute("SELECT COUNT(*) FROM analytics_runs WHERE status='superseded'").fetchone()[0]
+    if run is not None and notes.get("recon_up_units") is None:
+        totals = conn.execute(
+            """
+            SELECT
+              COALESCE(SUM(CASE WHEN event_type='receipt' THEN quantity_change ELSE 0 END), 0) AS up_units,
+              COALESCE(SUM(CASE WHEN event_type='writeoff' THEN -quantity_change ELSE 0 END), 0) AS down_units,
+              COALESCE(SUM(CASE WHEN event_type='receipt' THEN quantity_change * unit_cost_paise ELSE 0 END), 0) AS up_value,
+              COALESCE(SUM(CASE WHEN event_type='writeoff' THEN -quantity_change * unit_cost_paise ELSE 0 END), 0) AS down_value
+            FROM inventory_ledger
+            WHERE run_id=? AND reference='RECONCILE_TO_SNAPSHOT'
+            """,
+            (int(run["id"]),),
+        ).fetchone()
+        notes = {
+            **notes,
+            "recon_up_units": int(totals["up_units"]),
+            "recon_down_units": int(totals["down_units"]),
+            "recon_up_value_paise": int(totals["up_value"]),
+            "recon_down_value_paise": int(totals["down_value"]),
+            "net_adjustment_units": int(totals["up_units"]) - int(totals["down_units"]),
+            "absolute_adjustment_units": int(totals["up_units"]) + int(totals["down_units"]),
+            "net_adjustment_value_paise": int(totals["up_value"]) - int(totals["down_value"]),
+            "absolute_adjustment_value_paise": int(totals["up_value"]) + int(totals["down_value"]),
+        }
+    return {
+        "active_run_id": None if run is None else int(run["id"]),
+        "status": None if run is None else run["status"],
+        "freshness": freshness,
+        "source_fingerprint": None if run is None else run["source_fingerprint"],
+        "current_source_fingerprint": current,
+        "anchor_fingerprint": None if run is None else run["anchor_fingerprint"],
+        "live_anchor_fingerprint": live_anchor,
+        "anchor_drift": anchor_drift,
+        "anchor_note": (
+            "Current on-hand stock differs from the frozen reconstruction anchor. Historical snapshots were not rewritten."
+            if anchor_drift
+            else "Current on-hand stock matches the frozen reconstruction anchor."
+        ),
+        "algorithm_version": None if run is None else run["version"],
+        "snapshot_date": None if run is None else run["snapshot_date"],
+        "current_snapshot_date": snapshot_date,
+        "generated_at": None if run is None else run["generated_at"],
+        "seed": None if run is None else int(run["seed"]),
+        "superseded_runs": int(kept),
+        "reconciliation": {
+            "products_up": notes.get("reconciled_up"),
+            "products_down": notes.get("reconciled_down"),
+            "products_matched": notes.get("reconciled_matched"),
+            "up_units": notes.get("recon_up_units"),
+            "down_units": notes.get("recon_down_units"),
+            "up_value_paise": notes.get("recon_up_value_paise"),
+            "down_value_paise": notes.get("recon_down_value_paise"),
+            "net_units": notes.get("net_adjustment_units"),
+            "absolute_units": notes.get("absolute_adjustment_units"),
+            "net_value_paise": notes.get("net_adjustment_value_paise"),
+            "absolute_value_paise": notes.get("absolute_adjustment_value_paise"),
+            "reconciliation_date": notes.get("reconciliation_date") or (None if run is None else run["snapshot_date"]),
+            "provenance": PROVENANCE,
+        },
+        "retention": (
+            "Superseded runs stay in the database for audit. build-analytics reuses a completed run "
+            "only when the source fingerprint, seed, algorithm version, and snapshot date match. "
+            "A later stock receipt changes the live anchor and does not by itself mark history stale."
+        ),
+    }

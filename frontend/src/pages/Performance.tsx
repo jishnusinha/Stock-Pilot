@@ -212,7 +212,13 @@ export function Performance() {
 
       <section className="card">
         <h2 className="card-title">Measured agent step time</h2>
-        <p className="card-sub">Durations stored on agent runs. This is not an API p95, and p95 API latency remains unmeasured.</p>
+        <p className="card-sub">Durations stored on agent runs. API latency above is a separate local measurement and stays “Not measured” until a benchmark file exists.</p>
+        {data?.api_benchmark?.method ? (
+          <p className="note">
+            {data.api_benchmark.method}
+            {data.api_benchmark.measured_at ? ` Measured ${data.api_benchmark.measured_at}.` : ""}
+          </p>
+        ) : null}
         {(data?.agent_latency?.length ?? 0) === 0 ? (
           <p className="note">No timed agent runs are stored yet.</p>
         ) : (
@@ -227,6 +233,52 @@ export function Performance() {
           />
         )}
       </section>
+
+      {data?.expanded_policy_replay?.rows?.length ? (
+        <section className="card" style={{ marginTop: 16 }}>
+          <h2 className="card-title">Expanded simulated policy replay</h2>
+          <p className="card-sub">
+            {data.expanded_policy_replay.limitation} Sample {formatNumber(data.expanded_policy_replay.sample_skus)} SKUs
+            {data.expanded_policy_replay.runtime_seconds != null ? `, runtime ${data.expanded_policy_replay.runtime_seconds}s` : ""}.
+            Purchasing cash is not included in defined cost.
+          </p>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Strategy</th>
+                  <th>Mean defined cost</th>
+                  <th>Mean stockout days</th>
+                  <th>Mean unmet units</th>
+                  <th>Mean purchasing cash</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.expanded_policy_replay.rows.map((row) => (
+                  <tr key={row.strategy}>
+                    <td>{row.strategy}</td>
+                    <td className="tabular">{row.cost_paise != null ? formatPaise(row.cost_paise) : "N/A"}</td>
+                    <td className="tabular">{row.mean_stockout_days != null ? formatNumber(row.mean_stockout_days) : "—"}</td>
+                    <td className="tabular">{row.mean_unmet_demand_units != null ? formatNumber(row.mean_unmet_demand_units) : "—"}</td>
+                    <td className="tabular">{row.mean_purchasing_cash_paise != null ? formatPaise(row.mean_purchasing_cash_paise) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {data?.mlops?.limitations?.length ? (
+        <section className="card" style={{ marginTop: 16 }}>
+          <h2 className="card-title">What this screen does not claim</h2>
+          <ul className="insight-list">
+            {data.mlops.limitations.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </>
   );
 }
@@ -237,6 +289,7 @@ function formatKpiValue(value: number | string | null, unit?: string) {
     if (unit === "%") return `${(value * 100).toFixed(2)}%`;
     if (unit === "ratio") return `${(value * 100).toFixed(1)}%`;
     if (unit === "paise") return formatPaise(value);
+    if (unit === "ms") return formatLatencyMs(value);
     return formatNumber(value);
   }
   return value;

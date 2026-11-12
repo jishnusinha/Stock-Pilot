@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 
@@ -15,7 +16,7 @@ from app.agents.base import TrainContext
 from app.agents.registry import AGENT_ORDER, get_agent, train_all
 from app.ml import artifacts
 from app.services.bootstrap import bootstrap, reset_demo
-from app.services.inventory_history import build_analytics
+from app.services.inventory_history import analytics_status, build_analytics
 from app.services.performance import evaluate_all
 from app.services.seed import seed_demo
 
@@ -84,6 +85,31 @@ def cmd_evaluate(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_analytics_status(args: argparse.Namespace) -> int:
+    conn = connect()
+    migrate(conn)
+    try:
+        payload = analytics_status(conn, seed=args.seed)
+    finally:
+        conn.close()
+    print(json.dumps(payload, indent=2))
+    return 0 if payload.get("freshness") != "missing" else 0
+
+
+def cmd_policy_replay(args: argparse.Namespace) -> int:
+    from app.services.policy_replay import write_expanded_replay
+
+    _set_threads(args.threads)
+    conn = connect()
+    migrate(conn)
+    try:
+        payload = write_expanded_replay(conn, sample=args.sample, seed=args.seed)
+    finally:
+        conn.close()
+    print(json.dumps({k: v for k, v in payload.items() if k != "rows"}, indent=2))
+    return 0
+
+
 def cmd_build_analytics(args: argparse.Namespace) -> int:
     conn = connect()
     migrate(conn)
@@ -141,6 +167,16 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--seed", type=int, default=settings.seed)
     ap.add_argument("--force", action="store_true")
     ap.set_defaults(func=cmd_build_analytics)
+
+    st = sub.add_parser("analytics-status")
+    st.add_argument("--seed", type=int, default=None)
+    st.set_defaults(func=cmd_analytics_status)
+
+    pp = sub.add_parser("policy-replay")
+    pp.add_argument("--sample", type=int, default=50)
+    pp.add_argument("--seed", type=int, default=settings.seed)
+    pp.add_argument("--threads", type=int, default=settings.threads)
+    pp.set_defaults(func=cmd_policy_replay)
 
     bp = sub.add_parser("bootstrap")
     bp.add_argument("--products", type=int, default=200)

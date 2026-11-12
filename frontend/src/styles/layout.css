@@ -164,6 +164,12 @@
 }
 
 @media (max-width: 1024px) {
+  .quality-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1024px) {
   .grid-kpi-4,
   .grid-kpi-6,
   .perf-grid,
@@ -225,7 +231,8 @@
   .grid-kpi-4,
   .grid-kpi-6,
   .perf-grid,
-  .analytics-split {
+  .analytics-split,
+  .quality-grid {
     grid-template-columns: 1fr;
   }
 

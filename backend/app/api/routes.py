@@ -650,6 +650,16 @@ def trigger_run(body: S.TriggerRunRequest, conn: sqlite3.Connection = Depends(ge
     return agent_run_trace(tid, conn)
 
 
+def _read_json(path) -> dict | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 @router.get("/performance", response_model=S.PerformanceResponse)
 def performance(conn: sqlite3.Connection = Depends(get_db)) -> Any:
     metrics = repo.list_metrics(conn)
@@ -672,6 +682,14 @@ def performance(conn: sqlite3.Connection = Depends(get_db)) -> Any:
     mae, _ = metric_val("mae")
     biz = eval_data.get("business") or {}
     coverage = eval_data.get("coverage") or {}
+    benchmark = _read_json(settings.eval_dir / "api_benchmark.json")
+    expanded = _read_json(settings.eval_dir / "policy_replay_expanded.json")
+    overview_p95 = None
+    if benchmark:
+        for endpoint in benchmark.get("endpoints") or []:
+            if endpoint.get("name") == "analytics_overview":
+                overview_p95 = endpoint.get("p95_ms")
+                break
 
     # Prefer mean defined cost from policy replay when present
     multi_cost = None
@@ -700,10 +718,19 @@ def performance(conn: sqlite3.Connection = Depends(get_db)) -> Any:
         },
         {
             "id": "latency",
-            "label": "p95 API Latency",
-            "value": "Not measured",
-            "measured": False,
-            "tooltip": "Insufficient timed request sample",
+            "label": "Local analytics overview p95",
+            "value": None if overview_p95 is None else round(float(overview_p95), 1),
+            "unit": None if overview_p95 is None else "ms",
+            "measured": overview_p95 is not None,
+            "tooltip": (
+                "Not measured. Run python scripts/benchmark_api.py to write a local TestClient sample."
+                if overview_p95 is None
+                else (
+                    "In-process TestClient p95 for /api/analytics/overview. "
+                    f"Measured at {benchmark.get('measured_at')}. Not a networked production SLO."
+                )
+            ),
+            "source": "LOCAL_TESTCLIENT" if overview_p95 is not None else None,
         },
         {
             "id": "sim_policy_cost",
@@ -805,6 +832,18 @@ def performance(conn: sqlite3.Connection = Depends(get_db)) -> Any:
         },
         "model_versions": model_versions,
         "business_simulation": business_simulation,
+        "expanded_policy_replay": expanded,
+        "api_benchmark": benchmark,
+        "mlops": {
+            "model_artifacts": artifacts.list_agent_artifacts(),
+            "limitations": [
+                "Category-level forecast accuracy is not stored as a separate metric.",
+                "SKU-level forecast accuracy is not stored beyond the pooled holdout.",
+                "Multi-horizon forecast scores are not stored; the backtest is rolling one-step.",
+                "Policy replay is simulated and is not model accuracy.",
+                "API latency is shown only after a local benchmark file is written.",
+            ],
+        },
         "agent_latency": agent_latency,
         "data_source": "SYNTHETIC_DEMO",
         "evaluation_mode": eval_data.get("evaluation_mode"),

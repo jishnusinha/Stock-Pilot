@@ -77,6 +77,7 @@ export function InventoryAnalytics() {
   const [drawerId, setDrawerId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ProductDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [sectionError, setSectionError] = useState<string | null>(null);
 
   const fetchKey = analyticsFetchKey(query);
 
@@ -92,8 +93,10 @@ export function InventoryAnalytics() {
       category: query.category,
       supplier_id: query.supplier,
       product_id: query.product,
+      segment: query.cell,
     };
-    Promise.all([
+    const base = { ...q, segment: undefined };
+    Promise.allSettled([
       api.analyticsOverview(q, ac.signal),
       api.analyticsTrend(q, ac.signal),
       api.analyticsTurnover(q, ac.signal),
@@ -101,41 +104,55 @@ export function InventoryAnalytics() {
       api.analyticsTop(q, ac.signal),
       api.analyticsSales(q, ac.signal),
       api.analyticsCategories(q, ac.signal),
-      api.analyticsAbc({ ...q, page_size: 200 }, ac.signal),
+      api.analyticsAbc({ ...base, page_size: 200 }, ac.signal),
       api.analyticsSlow({ ...q, page_size: 50 }, ac.signal),
       api.analyticsSuppliers(q, ac.signal),
       api.analyticsFilters(ac.signal),
     ])
-      .then(([overview, trend, turnover, movements, top, sales, categories, abc, slow, suppliers, filters]) => {
-        if (!active) return;
+      .then((results) => {
+        if (!active || ac.signal.aborted) return;
+        const failed = results.filter((result) => result.status === "rejected");
+        const overview = results[0].status === "fulfilled" ? results[0].value : null;
+        if (!overview) {
+          const reason = results[0].status === "rejected" ? results[0].reason : null;
+          setOffline(reason instanceof TypeError);
+          setError(reason instanceof Error ? reason.message : "Analytics request failed");
+          return;
+        }
+        const trend = results[1].status === "fulfilled" ? results[1].value : null;
+        const turnover = results[2].status === "fulfilled" ? results[2].value : null;
+        const movements = results[3].status === "fulfilled" ? results[3].value : null;
+        const top = results[4].status === "fulfilled" ? results[4].value : null;
+        const sales = results[5].status === "fulfilled" ? results[5].value : null;
+        const categories = results[6].status === "fulfilled" ? results[6].value : null;
+        const abc = results[7].status === "fulfilled" ? results[7].value : null;
+        const slow = results[8].status === "fulfilled" ? results[8].value : null;
+        const suppliers = results[9].status === "fulfilled" ? results[9].value : null;
+        const filters = results[10].status === "fulfilled" ? results[10].value : null;
         setBundle({
           overview,
-          months: trend.months ?? [],
-          turnover: turnover.months ?? [],
-          turnoverDefinition: turnover.definition,
-          movements,
-          byValue: top.by_value ?? [],
-          byQuantity: top.by_quantity ?? [],
-          sales: sales.months ?? [],
-          categories: categories.categories ?? [],
-          cells: abc.cells ?? [],
-          abcProducts: abc.products ?? [],
-          abcRule: abc.abc_rule,
-          xyzRule: abc.xyz_rule,
-          slow: slow.items ?? [],
-          slowDefinition: slow.definition,
-          suppliers: suppliers.items ?? [],
-          supplierNote: suppliers.simulated_label,
-          catalogNote: suppliers.catalog_reliability_label,
-          filters,
+          months: trend?.months ?? [],
+          turnover: turnover?.months ?? [],
+          turnoverDefinition: turnover?.definition,
+          movements: movements ?? { ready: false },
+          byValue: top?.by_value ?? [],
+          byQuantity: top?.by_quantity ?? [],
+          sales: sales?.months ?? [],
+          categories: categories?.categories ?? [],
+          cells: abc?.cells ?? [],
+          abcProducts: abc?.products ?? [],
+          abcRule: abc?.abc_rule,
+          xyzRule: abc?.xyz_rule,
+          slow: slow?.items ?? [],
+          slowDefinition: slow?.definition,
+          suppliers: suppliers?.items ?? [],
+          supplierNote: suppliers?.simulated_label,
+          catalogNote: suppliers?.catalog_reliability_label,
+          filters: filters ?? { ready: false, categories: [], suppliers: [], products: [], years: [], months: [] },
         });
+        setSectionError(failed.length ? "Some analytics sections could not be refreshed. The sections that loaded are still usable." : null);
         setError(null);
         setOffline(false);
-      })
-      .catch((err: unknown) => {
-        if (!active || ac.signal.aborted) return;
-        setOffline(err instanceof TypeError);
-        setError(err instanceof Error ? err.message : "Analytics request failed");
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -167,7 +184,7 @@ export function InventoryAnalytics() {
 
   function update(partial: Partial<AnalyticsQuery>) {
     const next = { ...query, ...partial };
-    setParams(writeAnalyticsQuery(next), { replace: true });
+    setParams(writeAnalyticsQuery(next));
   }
 
   const ranked = query.rank === "quantity" ? bundle?.byQuantity ?? [] : bundle?.byValue ?? [];
@@ -206,7 +223,9 @@ export function InventoryAnalytics() {
         actions={<span className="badge badge-muted">{period}</span>}
       />
 
-      <FilterBar query={query} filters={filters} onChange={update} onClear={() => setParams(writeAnalyticsQuery(clearAnalyticsQuery()), { replace: true })} />
+      <FilterBar query={query} filters={filters} onChange={update} onClear={() => setParams(writeAnalyticsQuery(clearAnalyticsQuery()))} />
+      {loading && bundle ? <p className="note analytics-busy">Refreshing the selected view…</p> : null}
+      {sectionError ? <p className="note section-error" role="status">{sectionError}</p> : null}
 
       {!overview?.ready ? (
         <EmptyState
@@ -220,13 +239,13 @@ export function InventoryAnalytics() {
               label="Inventory value"
               icon={<IndianRupee size={16} />}
               value={formatPaise(overview.inventory_value_paise)}
-              sublabel={`Period-end cost. Live on-hand ${formatPaise(overview.live_inventory_value_paise)}`}
+              sublabel={`Historical as-of-period, stock on ${overview.period_end ?? "the period end"}. Current operational stock ${formatPaise(overview.live_inventory_value_paise)}`}
             />
             <KpiCard
               label="Stock available"
               icon={<Boxes size={16} />}
               value={formatNumber(overview.stock_units)}
-              sublabel={`Period-end units. Live ${formatNumber(overview.live_stock_units)}`}
+              sublabel={`Historical stock on ${overview.period_end ?? "the period end"}. Current stock ${formatNumber(overview.live_stock_units)}`}
             />
             <article className="card kpi-card">
               <div className="kpi-top">
@@ -234,10 +253,10 @@ export function InventoryAnalytics() {
                 <span className="kpi-icon"><Gauge size={16} /></span>
               </div>
               <div className="gauge-row">
-                <TurnoverGauge value={overview.turnover ?? null} target={overview.turnover_reference_target ?? 6} />
+                <TurnoverSpark months={bundle?.turnover ?? []} />
                 <div>
                   <div className="kpi-value tabular">{overview.turnover == null ? "N/A" : overview.turnover.toFixed(2)}</div>
-                  <p className="note">Reference target {overview.turnover_reference_target ?? 6} is a demo planning mark, not a benchmark.</p>
+                  <p className="note">Historical as-of-period. The number is the full ratio. The line is that period's monthly turns, scaled to the data.</p>
                 </div>
               </div>
             </article>
@@ -245,22 +264,24 @@ export function InventoryAnalytics() {
               label="Inventory to sales"
               icon={<Scale size={16} />}
               value={overview.inventory_to_sales == null ? "N/A" : overview.inventory_to_sales.toFixed(2)}
-              sublabel="Period-end value / fulfilled revenue"
+              sublabel="Historical as-of-period. Period-end value / fulfilled revenue"
             />
             <KpiCard
               label="Days inventory outstanding"
               icon={<Timer size={16} />}
               value={overview.days_inventory_outstanding == null ? "N/A" : overview.days_inventory_outstanding.toFixed(1)}
-              sublabel="Accounting DIO, not forecast cover"
+              sublabel="Historical as-of-period. Accounting DIO, not forecast cover"
             />
             <KpiCard
               label="Excess inventory value"
               icon={<Warehouse size={16} />}
               tone="warn"
               value={overview.excess_inventory_value_paise == null ? "N/A" : formatPaise(overview.excess_inventory_value_paise)}
-              sublabel="Current proxy. The date filter does not change it."
+              sublabel="Current operational state. This forecast overlay was not known in the selected month."
             />
           </div>
+
+          <QualityPanel overview={overview} />
 
           <div className="analytics-split">
             <ChartCard
@@ -488,10 +509,10 @@ export function InventoryAnalytics() {
                 onSelect={(row) => setDrawerId(row.product_id)}
                 columns={[
                   { key: "product", header: "Product", render: (row) => `${row.name} · ${row.sku}` },
-                  { key: "stock", header: "On hand", align: "right", render: (row) => formatNumber(row.stock_units) },
-                  { key: "value", header: "Value", align: "right", render: (row) => formatPaise(row.inventory_value_paise) },
+                  { key: "historical", header: "Historical stock", align: "right", render: (row) => formatNumber(row.historical_stock_units ?? row.stock_units) },
+                  { key: "current", header: "Current stock", align: "right", render: (row) => formatNumber(row.current_stock_units ?? row.stock_units) },
                   { key: "sales", header: "Sold 30 / 90", align: "right", render: (row) => `${formatNumber(row.sold_units_30d)} / ${formatNumber(row.sold_units_90d)}` },
-                  { key: "cover", header: "Forecast cover", align: "right", render: (row) => (row.forecast_days_of_supply == null ? "N/A" : `${row.forecast_days_of_supply.toFixed(0)} d`) },
+                  { key: "cover", header: "Current forecast cover", align: "right", render: (row) => (row.forecast_days_of_supply == null ? "N/A" : `${row.forecast_days_of_supply.toFixed(0)} d`) },
                   { key: "action", header: "Suggested action", render: (row) => row.suggested_action },
                 ]}
               />
@@ -655,22 +676,53 @@ function AbcRow({
   );
 }
 
-function TurnoverGauge({ value, target }: { value: number | null; target: number }) {
-  const max = Math.max(target * 2, 1);
-  const pct = value == null ? 0 : Math.max(0, Math.min(1, value / max));
-  const length = Math.PI * 40;
+function TurnoverSpark({ months }: { months: AnalyticsMonth[] }) {
+  const values = months.map((month) => month.turnover).filter((value): value is number => value != null && Number.isFinite(value));
+  if (values.length < 2) return <span className="note">No monthly trend in this filter.</span>;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const width = 120;
+  const height = 36;
+  const points = values
+    .map((value, index) => {
+      const x = (index / (values.length - 1)) * width;
+      const y = height - ((value - min) / span) * (height - 4) - 2;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
   return (
-    <svg className="gauge" viewBox="0 0 100 58" role="img" aria-label={value == null ? "Turnover unavailable" : `Turnover ${value.toFixed(2)} compared with reference ${target}`}>
-      <path d="M10 50 A40 40 0 0 1 90 50" fill="none" stroke="var(--color-border)" strokeWidth="8" strokeLinecap="round" />
-      <path
-        d="M10 50 A40 40 0 0 1 90 50"
-        fill="none"
-        stroke="var(--color-primary)"
-        strokeWidth="8"
-        strokeLinecap="round"
-        strokeDasharray={`${pct * length} ${length}`}
-      />
+    <svg className="spark" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Monthly turnover from ${values[0].toFixed(2)} to ${values[values.length - 1].toFixed(2)}`}>
+      <polyline fill="none" stroke="var(--color-primary)" strokeWidth="2" points={points} />
     </svg>
+  );
+}
+
+function QualityPanel({ overview }: { overview: AnalyticsOverview }) {
+  const recon = overview.reconciliation;
+  const fingerprint = (overview.source_fingerprint || "").slice(0, 12);
+  return (
+    <section className="card quality-panel" aria-label="Reconstruction quality">
+      <div className="card-head">
+        <div>
+          <h2 className="card-title">Reconstruction quality</h2>
+          <p className="card-sub">Synthetic reconstructed history. Terminal reconciliation is separate from simulated replenishment.</p>
+        </div>
+        <span className="badge badge-muted">Synthetic data</span>
+      </div>
+      <div className="quality-grid">
+        <div><span className="note">Run</span><strong>{overview.run_id ?? "N/A"}</strong></div>
+        <div><span className="note">Freshness</span><strong>{overview.freshness ?? "N/A"}</strong></div>
+        <div><span className="note">Fingerprint</span><strong className="tabular">{fingerprint || "N/A"}</strong></div>
+        <div><span className="note">Algorithm</span><strong>{overview.algorithm_version ?? "v1"}</strong></div>
+        <div><span className="note">Reconciled up</span><strong>{recon ? `${formatNumber(recon.products_up)} SKUs · ${formatPaise(recon.up_value_paise)}` : "N/A"}</strong></div>
+        <div><span className="note">Reconciled down</span><strong>{recon ? `${formatNumber(recon.products_down)} SKUs · ${formatPaise(recon.down_value_paise)}` : "N/A"}</strong></div>
+        <div><span className="note">No adjustment</span><strong>{recon ? formatNumber(recon.products_matched) : "N/A"}</strong></div>
+        <div><span className="note">Absolute impact</span><strong>{recon ? formatPaise(recon.absolute_value_paise) : "N/A"}</strong></div>
+      </div>
+      <p className="note">{recon?.explanation || overview.reconciliation_note}</p>
+      {overview.anchor_note ? <p className="note">{overview.anchor_note}</p> : null}
+    </section>
   );
 }
 
@@ -751,12 +803,17 @@ function waterfallSteps(report: MovementReport): FlowStep[] {
     rows.push({ name, base: Math.min(cursor, next), span: Math.abs(amount), amount, kind: amount >= 0 ? "up" : "down" });
     cursor = next;
   }
+  const split = report.reconciliation_receipt_units != null || report.reconciliation_writeoff_units != null;
+  const reconIn = report.reconciliation_receipt_units ?? 0;
+  const reconOut = report.reconciliation_writeoff_units ?? 0;
   total("Opening", report.opening_units ?? 0);
-  delta("Receipts", report.receipts_units ?? 0);
+  delta(split ? "Replenishment" : "Receipts", (report.routine_receipts_units ?? report.receipts_units ?? 0));
+  if (split) delta("Reconcile in", reconIn);
   delta("Returns", report.returns_units ?? 0);
   delta("Adjustments", report.adjustments_units ?? 0);
   delta("Sales", -(report.fulfilled_sales_units ?? 0));
-  delta("Write-offs", -(report.writeoff_units ?? 0));
+  delta(split ? "Write-offs" : "Write-offs", -((report.routine_writeoff_units ?? report.writeoff_units ?? 0)));
+  if (split) delta("Reconcile out", -reconOut);
   total("Closing", report.closing_units ?? 0);
   return rows;
 }

@@ -22,6 +22,7 @@ def get_filters(
     category: str | None = Query(None),
     supplier_id: int | None = Query(None),
     product_id: int | None = Query(None),
+    segment: str | None = Query(None),
 ) -> ia.Filters:
     try:
         return ia.parse_filters(
@@ -32,6 +33,7 @@ def get_filters(
             category=category,
             supplier_id=supplier_id,
             product_id=product_id,
+            segment=segment,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

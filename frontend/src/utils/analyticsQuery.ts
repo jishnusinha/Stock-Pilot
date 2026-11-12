@@ -53,5 +53,5 @@ export function clearAnalyticsQuery(): AnalyticsQuery {
 }
 
 export function analyticsFetchKey(query: AnalyticsQuery): string {
-  return [query.from, query.to, query.year, query.month, query.category, query.supplier, query.product].join("|");
+  return [query.from, query.to, query.year, query.month, query.category, query.supplier, query.product, query.cell].join("|");
 }

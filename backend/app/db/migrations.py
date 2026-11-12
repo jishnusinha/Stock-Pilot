@@ -187,7 +187,9 @@ CREATE TABLE IF NOT EXISTS analytics_runs (
   product_count INTEGER,
   day_count INTEGER,
   notes TEXT,
-  UNIQUE(dataset_source, seed, snapshot_date, version)
+  source_fingerprint TEXT,
+  anchor_fingerprint TEXT,
+  anchor_units INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS inventory_ledger (
@@ -261,6 +263,8 @@ CREATE INDEX IF NOT EXISTS idx_snap_run_product ON inventory_daily_snapshots(run
 CREATE INDEX IF NOT EXISTS idx_ledger_run_product ON inventory_ledger(run_id, product_id, event_at);
 CREATE INDEX IF NOT EXISTS idx_receipts_run_supplier ON inventory_receipts(run_id, supplier_id, received_date);
 CREATE INDEX IF NOT EXISTS idx_analytics_runs_status ON analytics_runs(status, generated_at);
+CREATE INDEX IF NOT EXISTS idx_analytics_runs_lookup
+  ON analytics_runs(dataset_source, seed, snapshot_date, version, status);
 """
 
 
@@ -275,11 +279,86 @@ def _mark(conn: sqlite3.Connection, version: str) -> None:
         )
 
 
+def _analytics_runs_sql(conn: sqlite3.Connection) -> str:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='analytics_runs'"
+    ).fetchone()
+    return str(row[0] or "") if row else ""
+
+
+def _migrate_v31(conn: sqlite3.Connection) -> None:
+    """Add source and anchor fingerprints and allow superseded runs to remain.
+
+    Older databases had a unique key that forced a rebuild to delete the previous
+    run. v3.1 keeps those rows and marks them superseded on an explicit rebuild.
+    """
+    sql = _analytics_runs_sql(conn)
+    if not sql:
+        return
+    needs_rebuild = "source_fingerprint" not in sql or "UNIQUE" in sql.upper()
+    if needs_rebuild:
+        conn.commit()
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("DROP TABLE IF EXISTS analytics_runs_v31")
+        conn.execute(
+            """
+            CREATE TABLE analytics_runs_v31 (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              dataset_source TEXT NOT NULL,
+              seed INTEGER NOT NULL,
+              snapshot_date TEXT NOT NULL,
+              generated_at TEXT NOT NULL,
+              version TEXT NOT NULL,
+              status TEXT NOT NULL,
+              product_count INTEGER,
+              day_count INTEGER,
+              notes TEXT,
+              source_fingerprint TEXT,
+              anchor_fingerprint TEXT,
+              anchor_units INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO analytics_runs_v31(
+              id, dataset_source, seed, snapshot_date, generated_at, version, status,
+              product_count, day_count, notes
+            )
+            SELECT id, dataset_source, seed, snapshot_date, generated_at, version, status,
+                   product_count, day_count, notes
+            FROM analytics_runs
+            """
+        )
+        conn.execute("DROP TABLE analytics_runs")
+        conn.execute("ALTER TABLE analytics_runs_v31 RENAME TO analytics_runs")
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_analytics_runs_status
+            ON analytics_runs(status, generated_at)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_analytics_runs_lookup
+            ON analytics_runs(dataset_source, seed, snapshot_date, version, status)
+            """
+        )
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.commit()
+    _mark(conn, "v31")
+    from app.services.analytics_fingerprint import backfill_missing_fingerprints
+
+    backfill_missing_fingerprints(conn)
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_V1)
     conn.executescript(SCHEMA_V3)
     _mark(conn, "v1")
     _mark(conn, "v3")
+    conn.commit()
+    _migrate_v31(conn)
     conn.commit()
 
 

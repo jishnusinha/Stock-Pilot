@@ -353,6 +353,25 @@ export interface PerformanceResponse {
       note?: string;
     }[];
   };
+  expanded_policy_replay?: {
+    label?: string;
+    sample_skus?: number | null;
+    runtime_seconds?: number | null;
+    limitation?: string | null;
+    rows?: {
+      strategy: string;
+      cost_paise?: number | null;
+      mean_stockout_days?: number | null;
+      mean_unmet_demand_units?: number | null;
+      mean_purchasing_cash_paise?: number | null;
+    }[];
+  } | null;
+  api_benchmark?: {
+    method?: string;
+    measured_at?: string;
+    endpoints?: { name: string; p50_ms?: number | null; p95_ms?: number | null; max_ms?: number | null; status?: number }[];
+  } | null;
+  mlops?: { limitations?: string[] } | null;
   agent_latency?: {
     agent_name: string;
     runs: number;
@@ -373,6 +392,7 @@ export interface AnalyticsParams {
   product_id?: string | number;
   limit?: number;
   cell?: string;
+  segment?: string;
   page?: number;
   page_size?: number;
 }
@@ -427,6 +447,32 @@ export interface AnalyticsOverview {
   cost_model?: string;
   reconciliation_note?: string | null;
   insights?: AnalyticsInsight[];
+  freshness?: string | null;
+  source_fingerprint?: string | null;
+  algorithm_version?: string | null;
+  anchor_note?: string | null;
+  historical_label?: string | null;
+  current_label?: string | null;
+  stock_units_meaning?: string | null;
+  live_stock_meaning?: string | null;
+  excess_meaning?: string | null;
+  reconciliation?: ReconciliationSummary | null;
+}
+
+export interface ReconciliationSummary {
+  products_up?: number | null;
+  products_down?: number | null;
+  products_matched?: number | null;
+  up_units?: number | null;
+  down_units?: number | null;
+  up_value_paise?: number | null;
+  down_value_paise?: number | null;
+  net_value_paise?: number | null;
+  absolute_value_paise?: number | null;
+  reconciliation_date?: string | null;
+  in_selected_window?: boolean | null;
+  provenance?: string | null;
+  explanation?: string | null;
 }
 
 export interface RankedProduct {
@@ -453,6 +499,10 @@ export interface MovementReport {
   returns_units?: number | null;
   adjustments_units?: number | null;
   writeoff_units?: number | null;
+  routine_receipts_units?: number | null;
+  reconciliation_receipt_units?: number | null;
+  routine_writeoff_units?: number | null;
+  reconciliation_writeoff_units?: number | null;
   closing_units?: number | null;
   opening_value_paise?: number | null;
   receipts_value_paise?: number | null;
@@ -495,6 +545,10 @@ export interface SlowItem {
   category?: string;
   stock_units: number;
   inventory_value_paise: number;
+  historical_stock_units?: number | null;
+  current_stock_units?: number | null;
+  sales_time_basis?: string | null;
+  forecast_time_basis?: string | null;
   sold_units_30d: number;
   sold_units_90d: number;
   forecast_daily_demand?: number | null;

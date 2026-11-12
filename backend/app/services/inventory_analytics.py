@@ -8,12 +8,19 @@ forecast days of supply.
 
 from __future__ import annotations
 
+import json
 import math
 import sqlite3
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 from app.core.config import settings
+from app.services.analytics_fingerprint import (
+    ALGORITHM_VERSION,
+    live_anchor_fingerprint,
+    source_fingerprint,
+)
 
 PROVENANCE = "SYNTHETIC_RECONSTRUCTED"
 TURNOVER_REFERENCE_TARGET = 6.0
@@ -59,6 +66,9 @@ XYZ_RULE = (
     f"X is CV < {XYZ_X}, Y is CV < {XYZ_Y}, Z is CV at or above {XYZ_Y} or a zero mean. "
     "This is a statistical segmentation, not a machine-learning model."
 )
+_CLASS_CACHE: dict[tuple, list[dict]] = {}
+_CLASS_LOCK = threading.Lock()
+
 CELL_COPY = {
     "AX": "High revenue contribution and relatively stable demand.",
     "AY": "High revenue contribution and moderately variable demand.",
@@ -81,6 +91,7 @@ class Filters:
     category: str | None = None
     supplier_id: int | None = None
     product_id: int | None = None
+    segment: str | None = None
 
 
 def parse_filters(
@@ -92,6 +103,7 @@ def parse_filters(
     category: str | None = None,
     supplier_id: int | None = None,
     product_id: int | None = None,
+    segment: str | None = None,
 ) -> Filters:
     start = _date(date_from, "date_from")
     end = _date(date_to, "date_to")
@@ -104,6 +116,9 @@ def parse_filters(
     cat = (category or "").strip() or None
     if cat is not None and len(cat) > 80:
         raise ValueError("category is too long")
+    cell = (segment or "").strip().upper() or None
+    if cell is not None and cell not in CELL_COPY:
+        raise ValueError("segment must be an ABC–XYZ cell such as AX")
     return Filters(
         date_from=start,
         date_to=end,
@@ -112,6 +127,7 @@ def parse_filters(
         category=cat,
         supplier_id=int(supplier_id) if supplier_id is not None else None,
         product_id=int(product_id) if product_id is not None else None,
+        segment=cell,
     )
 
 
@@ -149,7 +165,14 @@ def _latest_run(conn: sqlite3.Connection) -> sqlite3.Row | None:
     ).fetchone()
 
 
-def _where(filters: Filters, run_id: int, *, dates: bool = True) -> tuple[str, list]:
+def _where(
+    filters: Filters,
+    run_id: int,
+    *,
+    dates: bool = True,
+    conn: sqlite3.Connection | None = None,
+    apply_segment: bool = True,
+) -> tuple[str, list]:
     clauses = ["s.run_id = ?"]
     params: list = [run_id]
     if dates:
@@ -174,10 +197,25 @@ def _where(filters: Filters, run_id: int, *, dates: bool = True) -> tuple[str, l
     if filters.product_id is not None:
         clauses.append("s.product_id = ?")
         params.append(filters.product_id)
+    if apply_segment and filters.segment:
+        if conn is None:
+            raise RuntimeError("segment filters require a database connection")
+        cohort = _cohort_ids(conn, filters)
+        if not cohort:
+            clauses.append("0 = 1")
+        else:
+            marks = ",".join("?" * len(cohort))
+            clauses.append(f"s.product_id IN ({marks})")
+            params.extend(cohort)
     return " AND ".join(clauses), params
 
 
-def _product_where(filters: Filters) -> tuple[str, list]:
+def _product_where(
+    filters: Filters,
+    *,
+    conn: sqlite3.Connection | None = None,
+    apply_segment: bool = True,
+) -> tuple[str, list]:
     clauses = ["p.is_active = 1"]
     params: list = []
     if filters.category:
@@ -189,10 +227,155 @@ def _product_where(filters: Filters) -> tuple[str, list]:
     if filters.product_id is not None:
         clauses.append("p.id = ?")
         params.append(filters.product_id)
+    if apply_segment and filters.segment:
+        if conn is None:
+            raise RuntimeError("segment filters require a database connection")
+        cohort = _cohort_ids(conn, filters)
+        if not cohort:
+            clauses.append("0 = 1")
+        else:
+            marks = ",".join("?" * len(cohort))
+            clauses.append(f"p.id IN ({marks})")
+            params.extend(cohort)
     return " AND ".join(clauses), params
 
 
-def _run_meta(run: sqlite3.Row | None, *, ready: bool) -> dict:
+def _notes(run: sqlite3.Row | None) -> dict:
+    if run is None or not run["notes"]:
+        return {}
+    try:
+        parsed = json.loads(run["notes"])
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _freshness(conn: sqlite3.Connection, run: sqlite3.Row | None) -> dict:
+    if run is None:
+        return {
+            "freshness": "missing",
+            "algorithm_version": ALGORITHM_VERSION,
+            "source_fingerprint": None,
+            "current_source_fingerprint": None,
+            "anchor_fingerprint": None,
+            "anchor_drift": None,
+            "anchor_note": None,
+        }
+    current_snapshot = conn.execute("SELECT MAX(sale_date) AS b FROM sales").fetchone()["b"]
+    current_fp = source_fingerprint(
+        conn, seed=int(run["seed"]), snapshot_date=str(current_snapshot or run["snapshot_date"])
+    )
+    stored_fp = run["source_fingerprint"] if "source_fingerprint" in run.keys() else None
+    stored_anchor = run["anchor_fingerprint"] if "anchor_fingerprint" in run.keys() else None
+    live_anchor = live_anchor_fingerprint(conn)
+    fresh = (
+        run["status"] == "complete"
+        and stored_fp == current_fp
+        and run["version"] == ALGORITHM_VERSION
+        and run["snapshot_date"] == current_snapshot
+    )
+    drift = bool(stored_anchor and stored_anchor != live_anchor)
+    return {
+        "freshness": "fresh" if fresh else "stale",
+        "algorithm_version": run["version"],
+        "source_fingerprint": stored_fp,
+        "current_source_fingerprint": current_fp,
+        "anchor_fingerprint": stored_anchor,
+        "anchor_drift": drift,
+        "anchor_note": (
+            "Current on-hand stock differs from the frozen reconstruction anchor. Historical snapshots were not rewritten."
+            if drift
+            else "Current on-hand stock matches the frozen reconstruction anchor."
+        ),
+    }
+
+
+def _classified_products(conn: sqlite3.Connection, filters: Filters, run: sqlite3.Row) -> list[dict]:
+    """ABC–XYZ classes for the segmentation context. The selected cell is ignored."""
+    base = replace(filters, segment=None)
+    database_file = conn.execute("PRAGMA database_list").fetchone()["file"]
+    cache_key = (
+        database_file,
+        int(run["id"]),
+        base.date_from,
+        base.date_to,
+        base.year,
+        base.month,
+        base.category,
+        base.supplier_id,
+        base.product_id,
+    )
+    cached = _CLASS_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    with _CLASS_LOCK:
+        cached = _CLASS_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+        return _classify_and_store(conn, base, cache_key, int(run["id"]))
+
+
+def _classify_and_store(
+    conn: sqlite3.Connection, base: Filters, cache_key: tuple, run_id: int
+) -> list[dict]:
+    where, params = _where(base, run_id, conn=conn, apply_segment=False)
+    raw = conn.execute(
+        f"""
+        WITH filt AS (
+          SELECT s.*, p.sku, p.name, p.category
+          FROM inventory_daily_snapshots s
+          JOIN products p ON p.id = s.product_id
+          WHERE {where}
+        ),
+        ends AS (
+          SELECT product_id, MAX(snapshot_date) AS snapshot_date FROM filt GROUP BY product_id
+        )
+        SELECT f.product_id AS product_id, p.sku AS sku, p.name AS name, p.category AS category,
+               AVG(f.demand_units) AS mean_demand,
+               AVG(f.demand_units * f.demand_units) AS mean_square,
+               SUM(f.revenue_paise) AS revenue_paise,
+               e.closing_value_paise AS inventory_value_paise
+        FROM filt f
+        JOIN products p ON p.id = f.product_id
+        JOIN ends ON ends.product_id = f.product_id
+        JOIN filt e ON e.product_id = ends.product_id AND e.snapshot_date = ends.snapshot_date
+        GROUP BY f.product_id
+        """,
+        params,
+    ).fetchall()
+    products = []
+    for row in raw:
+        xyz, cv = _classify_xyz(float(row["mean_demand"] or 0), float(row["mean_square"] or 0))
+        products.append(
+            {
+                "product_id": int(row["product_id"]),
+                "sku": row["sku"],
+                "name": row["name"],
+                "category": row["category"],
+                "revenue_paise": int(row["revenue_paise"] or 0),
+                "inventory_value_paise": int(row["inventory_value_paise"] or 0),
+                "xyz": xyz,
+                "cv": cv,
+            }
+        )
+    _classify_abc(products)
+    for row in products:
+        row["cell"] = f"{row['abc']}{row['xyz']}"
+        row["interpretation"] = CELL_COPY[row["cell"]]
+    _CLASS_CACHE[cache_key] = products
+    if len(_CLASS_CACHE) > 24:
+        _CLASS_CACHE.pop(next(iter(_CLASS_CACHE)))
+    return products
+
+
+def _cohort_ids(conn: sqlite3.Connection, filters: Filters) -> list[int]:
+    run = _latest_run(conn)
+    if run is None or not filters.segment:
+        return []
+    return [int(row["product_id"]) for row in _classified_products(conn, filters, run) if row["cell"] == filters.segment]
+
+
+def _run_meta(run: sqlite3.Row | None, *, ready: bool, conn: sqlite3.Connection | None = None) -> dict:
     if run is None:
         return {
             "ready": False,
@@ -201,17 +384,24 @@ def _run_meta(run: sqlite3.Row | None, *, ready: bool) -> dict:
             "snapshot_date": None,
             "generated_at": None,
             "provenance": PROVENANCE,
+            "freshness": "missing",
             "note": "Analytics history has not been generated. Run: python -m app.cli build-analytics --seed 42",
         }
-    return {
+    body = {
         "ready": ready,
         "run_id": int(run["id"]),
         "seed": int(run["seed"]),
         "snapshot_date": run["snapshot_date"],
         "generated_at": run["generated_at"],
         "provenance": PROVENANCE,
+        "algorithm_version": run["version"],
+        "source_fingerprint": run["source_fingerprint"] if "source_fingerprint" in run.keys() else None,
+        "anchor_fingerprint": run["anchor_fingerprint"] if "anchor_fingerprint" in run.keys() else None,
         "note": None,
     }
+    if conn is not None:
+        body.update(_freshness(conn, run))
+    return body
 
 
 def _daily(conn: sqlite3.Connection, filters: Filters) -> tuple[sqlite3.Row | None, list[dict]]:
@@ -219,7 +409,7 @@ def _daily(conn: sqlite3.Connection, filters: Filters) -> tuple[sqlite3.Row | No
     run = _latest_run(conn)
     if run is None:
         return None, []
-    where, params = _where(filters, int(run["id"]))
+    where, params = _where(filters, int(run["id"]), conn=conn)
     rows = conn.execute(
         f"""
         SELECT s.snapshot_date AS snapshot_date,
@@ -250,7 +440,7 @@ def _daily(conn: sqlite3.Connection, filters: Filters) -> tuple[sqlite3.Row | No
 
 
 def _live(conn: sqlite3.Connection, filters: Filters) -> tuple[int, int]:
-    where, params = _product_where(filters)
+    where, params = _product_where(filters, conn=conn)
     row = conn.execute(
         f"""
         SELECT COALESCE(SUM(p.stock_on_hand), 0) AS units,
@@ -264,7 +454,7 @@ def _live(conn: sqlite3.Connection, filters: Filters) -> tuple[int, int]:
 
 
 def _excess(conn: sqlite3.Connection, filters: Filters) -> int | None:
-    where, params = _product_where(filters)
+    where, params = _product_where(filters, conn=conn)
     rows = conn.execute(
         f"""
         SELECT p.stock_on_hand, p.unit_cost_paise, r.forecast_28d
@@ -354,12 +544,18 @@ def _blank_metrics() -> dict:
 def overview(conn: sqlite3.Connection, filters: Filters) -> dict:
     run, days = _daily(conn, filters)
     live_units, live_value = _live(conn, filters)
-    meta = _run_meta(run, ready=run is not None)
+    meta = _run_meta(run, ready=run is not None, conn=conn)
     body = {
         **meta,
         **_blank_metrics(),
         "live_inventory_value_paise": live_value,
         "live_stock_units": live_units,
+        "historical_label": "Historical as-of-period",
+        "current_label": "Current operational state",
+        "stock_units_meaning": "period_end_historical_closing_stock",
+        "live_stock_meaning": "current_operational_stock",
+        "excess_meaning": "current_operational_overlay",
+        "segment": filters.segment,
         "turnover_definition": TURNOVER_DEFINITION,
         "turnover_reference_target": TURNOVER_REFERENCE_TARGET,
         "dio_definition": DIO_DEFINITION,
@@ -396,12 +592,15 @@ def overview(conn: sqlite3.Connection, filters: Filters) -> dict:
         }
     )
     body["insights"] = _insights(conn, filters, run, days, _months(days))
+    body["reconciliation"] = _reconciliation_facts(
+        conn, filters, run, str(days[0]["snapshot_date"]), str(days[-1]["snapshot_date"])
+    )
     return body
 
 
 def inventory_trend(conn: sqlite3.Connection, filters: Filters) -> dict:
     run, days = _daily(conn, filters)
-    return {**_run_meta(run, ready=run is not None), "months": _months(days), "cost_model": COST_MODEL}
+    return {**_run_meta(run, ready=run is not None, conn=conn), "months": _months(days), "cost_model": COST_MODEL}
 
 
 def turnover_series(conn: sqlite3.Connection, filters: Filters) -> dict:
@@ -417,7 +616,7 @@ def turnover_series(conn: sqlite3.Connection, filters: Filters) -> dict:
         for m in _months(days)
     ]
     return {
-        **_run_meta(run, ready=run is not None),
+        **_run_meta(run, ready=run is not None, conn=conn),
         "months": months,
         "definition": TURNOVER_DEFINITION,
         "reference_target": TURNOVER_REFERENCE_TARGET,
@@ -427,7 +626,7 @@ def turnover_series(conn: sqlite3.Connection, filters: Filters) -> dict:
 def movements(conn: sqlite3.Connection, filters: Filters) -> dict:
     run, days = _daily(conn, filters)
     body = {
-        **_run_meta(run, ready=run is not None),
+        **_run_meta(run, ready=run is not None, conn=conn),
         "formula": "closing = opening + receipts + returns + adjustments - fulfilled sales - write-offs",
         "conserved_units": None,
         "conserved_value": None,
@@ -484,7 +683,119 @@ def movements(conn: sqlite3.Connection, filters: Filters) -> dict:
             "closing_value_paise": closing_value,
         }
     )
+    facts = _reconciliation_facts(conn, filters, run, str(days[0]["snapshot_date"]), str(days[-1]["snapshot_date"]))
+    routine_receipts = receipts_units - int(facts["up_units"])
+    routine_receipts_value = receipts_value - int(facts["up_value_paise"])
+    routine_writeoffs = writeoff_units - int(facts["down_units"])
+    routine_writeoff_value = writeoff_value - int(facts["down_value_paise"])
+    split_units = (
+        opening_units
+        + routine_receipts
+        + int(facts["up_units"])
+        + returns_units
+        + adjustment_units
+        - sold_units
+        - routine_writeoffs
+        - int(facts["down_units"])
+    )
+    body.update(
+        {
+            "routine_receipts_units": routine_receipts,
+            "reconciliation_receipt_units": int(facts["up_units"]),
+            "routine_receipts_value_paise": routine_receipts_value,
+            "reconciliation_receipt_value_paise": int(facts["up_value_paise"]),
+            "routine_writeoff_units": routine_writeoffs,
+            "reconciliation_writeoff_units": int(facts["down_units"]),
+            "routine_writeoff_value_paise": routine_writeoff_value,
+            "reconciliation_writeoff_value_paise": int(facts["down_value_paise"]),
+            "reconciliation_split_conserved": split_units == closing_units,
+            "reconciliation": facts,
+        }
+    )
     return body
+
+
+def _reconciliation_facts(
+    conn: sqlite3.Connection,
+    filters: Filters,
+    run: sqlite3.Row,
+    start: str,
+    end: str,
+) -> dict:
+    """Terminal adjustments inside the selected window, kept separate from routine simulation."""
+    where, params = _where(filters, int(run["id"]), conn=conn, dates=False)
+    row = conn.execute(
+        f"""
+        SELECT
+          COALESCE(SUM(CASE WHEN l.event_type = 'receipt' THEN l.quantity_change ELSE 0 END), 0) AS up_units,
+          COALESCE(SUM(CASE WHEN l.event_type = 'receipt' THEN l.quantity_change * l.unit_cost_paise ELSE 0 END), 0) AS up_value,
+          COALESCE(SUM(CASE WHEN l.event_type = 'writeoff' THEN -l.quantity_change ELSE 0 END), 0) AS down_units,
+          COALESCE(SUM(CASE WHEN l.event_type = 'writeoff' THEN -l.quantity_change * l.unit_cost_paise ELSE 0 END), 0) AS down_value,
+          COUNT(DISTINCT CASE WHEN l.event_type = 'receipt' AND l.quantity_change > 0 THEN l.product_id END) AS products_up,
+          COUNT(DISTINCT CASE WHEN l.event_type = 'writeoff' AND l.quantity_change < 0 THEN l.product_id END) AS products_down
+        FROM inventory_ledger l
+        JOIN products p ON p.id = l.product_id
+        JOIN inventory_daily_snapshots s
+          ON s.run_id = l.run_id AND s.product_id = l.product_id AND s.snapshot_date = date(l.event_at)
+        WHERE l.reference = 'RECONCILE_TO_SNAPSHOT'
+          AND date(l.event_at) >= ?
+          AND date(l.event_at) <= ?
+          AND {where}
+        """,
+        [start, end, *params],
+    ).fetchone()
+    in_window = start <= str(run["snapshot_date"]) <= end
+    matched = 0
+    if in_window:
+        matched = int(
+            conn.execute(
+                f"""
+                SELECT COUNT(DISTINCT s.product_id)
+                FROM inventory_daily_snapshots s
+                JOIN products p ON p.id = s.product_id
+                WHERE {where}
+                  AND s.snapshot_date = ?
+                  AND s.product_id NOT IN (
+                    SELECT l.product_id
+                    FROM inventory_ledger l
+                    WHERE l.run_id = s.run_id
+                      AND l.reference = 'RECONCILE_TO_SNAPSHOT'
+                      AND date(l.event_at) = s.snapshot_date
+                  )
+                """,
+                [*params, run["snapshot_date"]],
+            ).fetchone()[0]
+        )
+    up_units = int(row["up_units"] or 0)
+    down_units = int(row["down_units"] or 0)
+    up_value = int(row["up_value"] or 0)
+    down_value = int(row["down_value"] or 0)
+    return {
+        "products_up": int(row["products_up"] or 0),
+        "products_down": int(row["products_down"] or 0),
+        "products_matched": matched,
+        "up_units": up_units,
+        "down_units": down_units,
+        "up_value_paise": up_value,
+        "down_value_paise": down_value,
+        "net_units": up_units - down_units,
+        "absolute_units": up_units + down_units,
+        "net_value_paise": up_value - down_value,
+        "absolute_value_paise": up_value + down_value,
+        "reconciliation_date": run["snapshot_date"],
+        "in_selected_window": in_window,
+        "provenance": PROVENANCE,
+        "source": "SYNTHETIC_RECONSTRUCTED terminal anchor adjustment",
+        "explanation": (
+            "Reconstruction walks forward from recorded demand and simulated replenishment. "
+            "On the final snapshot day the closing balance is aligned to the stock anchor frozen at generation time. "
+            "That alignment is a reconciliation receipt or write-off. It is not a supplier delivery and it is not observed purchasing. "
+            "Excluding it would leave the displayed series short of the recorded closing inventory."
+            if in_window
+            else "The terminal reconciliation date is outside this window, so reconciliation totals are zero here. "
+            "Movements inside the window still conserve to that window's closing snapshot."
+        ),
+    }
 
 
 def inventory_sales(conn: sqlite3.Connection, filters: Filters) -> dict:
@@ -498,11 +809,11 @@ def inventory_sales(conn: sqlite3.Connection, filters: Filters) -> dict:
         }
         for m in _months(days)
     ]
-    return {**_run_meta(run, ready=run is not None), "months": months, "definition": RATIO_DEFINITION}
+    return {**_run_meta(run, ready=run is not None, conn=conn), "months": months, "definition": RATIO_DEFINITION}
 
 
 def _ranked_products(conn: sqlite3.Connection, filters: Filters, run_id: int) -> list[dict]:
-    where, params = _where(filters, run_id)
+    where, params = _where(filters, run_id, conn=conn)
     rows = conn.execute(
         f"""
         WITH filt AS (
@@ -561,7 +872,7 @@ def top_products(conn: sqlite3.Connection, filters: Filters, *, limit: int = 10)
     run, _days = _daily(conn, filters)
     rows = _ranked_products(conn, filters, int(run["id"])) if run is not None else []
     return {
-        **_run_meta(run, ready=run is not None),
+        **_run_meta(run, ready=run is not None, conn=conn),
         "limit": limit,
         "by_value": _top(rows, "inventory_value_paise", limit),
         "by_quantity": _top(rows, "stock_units", limit),
@@ -573,7 +884,7 @@ def top_products(conn: sqlite3.Connection, filters: Filters, *, limit: int = 10)
 def category_breakdown(conn: sqlite3.Connection, filters: Filters) -> dict:
     run, _days = _daily(conn, filters)
     if run is None:
-        return {**_run_meta(run, ready=False), "categories": []}
+        return {**_run_meta(run, ready=False, conn=conn), "categories": []}
     grouped: dict[str, dict[str, int]] = {}
     for row in _ranked_products(conn, filters, int(run["id"])):
         bucket = grouped.setdefault(
@@ -595,7 +906,7 @@ def category_breakdown(conn: sqlite3.Connection, filters: Filters) -> dict:
                 "value_share": (value / total_value) if total_value else None,
             }
         )
-    return {**_run_meta(run, ready=True), "categories": categories}
+    return {**_run_meta(run, ready=True, conn=conn), "categories": categories}
 
 
 def _classify_xyz(mean_demand: float, mean_square: float) -> tuple[str, float | None]:
@@ -640,13 +951,18 @@ def abc_xyz(
         raise ValueError("page must be >= 1 and page_size must be between 1 and 200")
     if cell is not None and cell not in CELL_COPY:
         raise ValueError("cell must be a class such as AX")
-    run, _days = _daily(conn, filters)
+    base_filters = replace(filters, segment=None)
+    run, _days = _daily(conn, base_filters)
     base = {
-        **_run_meta(run, ready=run is not None),
+        **_run_meta(run, ready=run is not None, conn=conn),
         "abc_rule": ABC_RULE,
         "xyz_rule": XYZ_RULE,
         "revenue_metric": "fulfilled_sales_revenue",
         "variability_metric": "population_cv_of_daily_demand",
+        "segmentation_note": (
+            "Class boundaries use the selected period and the category, supplier, and product filters. "
+            "A selected cell filters the other analytics to that cohort and does not redraw these boundaries."
+        ),
         "cells": [],
         "products": [],
         "total": 0,
@@ -655,50 +971,7 @@ def abc_xyz(
     }
     if run is None:
         return base
-    where, params = _where(filters, int(run["id"]))
-    raw = conn.execute(
-        f"""
-        WITH filt AS (
-          SELECT s.*, p.sku, p.name, p.category
-          FROM inventory_daily_snapshots s
-          JOIN products p ON p.id = s.product_id
-          WHERE {where}
-        ),
-        ends AS (
-          SELECT product_id, MAX(snapshot_date) AS snapshot_date FROM filt GROUP BY product_id
-        )
-        SELECT f.product_id AS product_id, p.sku AS sku, p.name AS name, p.category AS category,
-               AVG(f.demand_units) AS mean_demand,
-               AVG(f.demand_units * f.demand_units) AS mean_square,
-               SUM(f.revenue_paise) AS revenue_paise,
-               e.closing_value_paise AS inventory_value_paise
-        FROM filt f
-        JOIN products p ON p.id = f.product_id
-        JOIN ends ON ends.product_id = f.product_id
-        JOIN filt e ON e.product_id = ends.product_id AND e.snapshot_date = ends.snapshot_date
-        GROUP BY f.product_id
-        """,
-        params,
-    ).fetchall()
-    products = []
-    for row in raw:
-        xyz, cv = _classify_xyz(float(row["mean_demand"] or 0), float(row["mean_square"] or 0))
-        products.append(
-            {
-                "product_id": int(row["product_id"]),
-                "sku": row["sku"],
-                "name": row["name"],
-                "category": row["category"],
-                "revenue_paise": int(row["revenue_paise"] or 0),
-                "inventory_value_paise": int(row["inventory_value_paise"] or 0),
-                "xyz": xyz,
-                "cv": cv,
-            }
-        )
-    _classify_abc(products)
-    for row in products:
-        row["cell"] = f"{row['abc']}{row['xyz']}"
-        row["interpretation"] = CELL_COPY[row["cell"]]
+    products = _classified_products(conn, base_filters, run)
     total_value = sum(int(r["inventory_value_paise"]) for r in products) or 0
     cells = []
     for abc in "ABC":
@@ -737,12 +1010,13 @@ def slow_moving(
         raise ValueError("page must be >= 1 and page_size must be between 1 and 200")
     run, days = _daily(conn, filters)
     definition = (
-        "Slow-moving screen uses fulfilled sales over the 30 and 90 snapshot days ending on the "
-        "period end, forecast days of supply from the risk cache, and an excess proxy. "
-        "Days since last recorded sale use demand units, not lot age. No expiry dates are shown."
+        "Fulfilled sales and days since recorded demand are historical, ending on the selected period. "
+        "historical_stock_units is that period's closing snapshot. "
+        "current_stock_units, forecast cover, risk, and the excess proxy describe the current operational state. "
+        "They were not known during the historical month. No expiry dates are shown."
     )
     body = {
-        **_run_meta(run, ready=run is not None),
+        **_run_meta(run, ready=run is not None, conn=conn),
         "definition": definition,
         "as_of": days[-1]["snapshot_date"] if days else None,
         "items": [],
@@ -756,7 +1030,7 @@ def slow_moving(
     start_30 = (as_of - timedelta(days=29)).date().isoformat()
     start_90 = (as_of - timedelta(days=89)).date().isoformat()
     as_of_s = as_of.date().isoformat()
-    where, params = _where(filters, int(run["id"]))
+    where, params = _where(filters, int(run["id"]), conn=conn)
     id_rows = conn.execute(
         f"""
         SELECT DISTINCT s.product_id
@@ -785,6 +1059,21 @@ def slow_moving(
 
     sold90 = window_map(start_90)
     sold30 = window_map(start_30)
+    hist_rows = conn.execute(
+        f"""
+        SELECT s.product_id AS product_id, s.closing_stock AS closing_stock, s.closing_value_paise AS closing_value
+        FROM inventory_daily_snapshots s
+        JOIN (
+          SELECT product_id, MAX(snapshot_date) AS snapshot_date
+          FROM inventory_daily_snapshots
+          WHERE run_id=? AND snapshot_date<=? AND product_id IN ({marks})
+          GROUP BY product_id
+        ) e ON e.product_id = s.product_id AND e.snapshot_date = s.snapshot_date
+        WHERE s.run_id=?
+        """,
+        [int(run["id"]), as_of_s, *ids, int(run["id"])],
+    ).fetchall()
+    historical = {int(r["product_id"]): (int(r["closing_stock"]), int(r["closing_value"])) for r in hist_rows}
     last_sale_rows = conn.execute(
         f"""
         SELECT product_id, MAX(snapshot_date) AS sale_date
@@ -831,6 +1120,7 @@ def slow_moving(
         if not reasons:
             continue
         action, basis = _slow_action(reasons)
+        hist_units, hist_value = historical.get(pid, (None, None))
         items.append(
             {
                 "product_id": pid,
@@ -839,6 +1129,13 @@ def slow_moving(
                 "category": row["category"],
                 "stock_units": stock,
                 "inventory_value_paise": stock * cost,
+                "historical_stock_units": hist_units,
+                "historical_inventory_value_paise": hist_value,
+                "current_stock_units": stock,
+                "current_inventory_value_paise": stock * cost,
+                "sales_time_basis": "historical_window",
+                "stock_time_basis": "current_operational_stock",
+                "forecast_time_basis": "current_operational_overlay",
                 "sold_units_30d": sold30.get(pid, 0),
                 "sold_units_90d": s90,
                 "forecast_daily_demand": forecast_daily,
@@ -883,7 +1180,7 @@ def _slow_action(reasons: list[str]) -> tuple[str, str]:
 def suppliers(conn: sqlite3.Connection, filters: Filters) -> dict:
     _assert_entities(conn, filters)
     run = _latest_run(conn)
-    where, params = _product_where(filters)
+    where, params = _product_where(filters, conn=conn)
     rows = conn.execute(
         f"""
         SELECT s.id AS supplier_id, s.name, s.base_lead_days, s.delivery_reliability,
@@ -927,7 +1224,7 @@ def suppliers(conn: sqlite3.Connection, filters: Filters) -> dict:
     for row in rows:
         if filters.supplier_id is not None and int(row["supplier_id"]) != filters.supplier_id:
             continue
-        if filters.category or filters.product_id or filters.supplier_id:
+        if filters.category or filters.product_id or filters.supplier_id or filters.segment:
             if int(row["product_count"] or 0) == 0 and filters.supplier_id is None:
                 continue
         rec = receipt_map.get(int(row["supplier_id"]))
@@ -948,7 +1245,7 @@ def suppliers(conn: sqlite3.Connection, filters: Filters) -> dict:
             }
         )
     return {
-        **_run_meta(run, ready=run is not None),
+        **_run_meta(run, ready=run is not None, conn=conn),
         "catalog_reliability_label": (
             "catalog_reliability is the synthetic supplier parameter used when the catalog was generated. "
             "It is not a measured on-time rate."
@@ -1005,7 +1302,7 @@ def filter_options(conn: sqlite3.Connection) -> dict:
             )
         ]
     return {
-        **_run_meta(run, ready=run is not None),
+        **_run_meta(run, ready=run is not None, conn=conn),
         "categories": categories,
         "suppliers": [{"id": int(r["id"]), "name": r["name"]} for r in suppliers_rows],
         "products": [

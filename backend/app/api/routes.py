@@ -18,11 +18,13 @@ from app.api.deps import get_db
 from app.core.config import settings
 from app.db import repositories as repo
 from app.ml import artifacts
+from app.api.analytics_routes import router as analytics_router
 from app.services.dashboard import build_dashboard
 from app.services.orchestrator import run_decision
 from app.services.simulate_api import run_simulate
 
 router = APIRouter(prefix="/api")
+router.include_router(analytics_router)
 
 # Edges match orchestrator signal flow (see docs/agent-dependency-contract.md).
 # First-wave agents read sales/catalog features directly; there is no "data" model node.
@@ -264,6 +266,7 @@ def product_detail(product_id: int, conn: sqlite3.Connection = Depends(get_db)) 
             "suggested_qty": recs[0]["suggested_qty"],
             "rationale": expl.get("summary"),
             "product_id": product_id,
+            "trace_id": recs[0].get("trace_id"),
         }
     forecast_pts = [
         {
@@ -747,8 +750,29 @@ def performance(conn: sqlite3.Connection = Depends(get_db)) -> Any:
 
     business_simulation = {
         "label": biz.get("label", "SIMULATED_POLICY_REPLAY"),
+        "sample_skus": biz.get("sample_skus"),
+        "note": (
+            "Policy comparison uses a small simulated sample. "
+            "It does not establish that the multi-agent system is better in general."
+        ),
         "rows": biz_rows,
     }
+    agent_latency = [
+        {
+            "agent_name": row["agent_name"],
+            "runs": int(row["n"]),
+            "mean_duration_ms": float(row["avg_ms"]) if row["avg_ms"] is not None else None,
+            "max_duration_ms": float(row["max_ms"]) if row["max_ms"] is not None else None,
+        }
+        for row in conn.execute(
+            """
+            SELECT agent_name, COUNT(*) AS n, AVG(duration_ms) AS avg_ms, MAX(duration_ms) AS max_ms
+            FROM agent_runs
+            GROUP BY agent_name
+            ORDER BY agent_name
+            """
+        )
+    ]
 
     model_versions = [
         {
@@ -781,6 +805,7 @@ def performance(conn: sqlite3.Connection = Depends(get_db)) -> Any:
         },
         "model_versions": model_versions,
         "business_simulation": business_simulation,
+        "agent_latency": agent_latency,
         "data_source": "SYNTHETIC_DEMO",
         "evaluation_mode": eval_data.get("evaluation_mode"),
     }

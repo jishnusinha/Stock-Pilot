@@ -13,12 +13,12 @@ export interface DashboardKpis {
   projected_revenue_paise?: number | null;
   at_risk_products?: number | null;
   suggested_reorders?: number | null;
-  estimated_savings_paise?: number | null;
-  savings_label?: string;
+  inventory_value_paise?: number | null;
+  excess_inventory_value_paise?: number | null;
+  excess_label?: string | null;
   projected_revenue_trend_pct?: number | null;
   at_risk_delta?: number | null;
   reorders_trend_pct?: number | null;
-  savings_trend_pct?: number | null;
 }
 
 export interface ForecastPoint {
@@ -143,6 +143,7 @@ export interface ReorderRecommendation {
   suggested_qty?: number;
   rationale?: string;
   product_id?: number;
+  trace_id?: string | null;
 }
 
 export interface AdjustStockRequest {
@@ -341,6 +342,8 @@ export interface PerformanceResponse {
   model_versions: ModelVersion[];
   business_simulation?: {
     label: string;
+    sample_skus?: number | null;
+    note?: string;
     rows: {
       strategy: string;
       savings_paise?: number | null;
@@ -350,8 +353,198 @@ export interface PerformanceResponse {
       note?: string;
     }[];
   };
+  agent_latency?: {
+    agent_name: string;
+    runs: number;
+    mean_duration_ms?: number | null;
+    max_duration_ms?: number | null;
+  }[];
   data_source?: DataSource;
   evaluation_mode?: string;
+}
+
+export interface AnalyticsParams {
+  date_from?: string;
+  date_to?: string;
+  year?: string | number;
+  month?: string | number;
+  category?: string;
+  supplier_id?: string | number;
+  product_id?: string | number;
+  limit?: number;
+  cell?: string;
+  page?: number;
+  page_size?: number;
+}
+
+export interface AnalyticsInsight {
+  id: string;
+  text: string;
+}
+
+export interface AnalyticsMonth {
+  month: string;
+  inventory_value_paise?: number | null;
+  stock_units?: number | null;
+  revenue_paise?: number | null;
+  cogs_paise?: number | null;
+  average_inventory_value_paise?: number | null;
+  turnover?: number | null;
+  inventory_to_sales?: number | null;
+  days?: number;
+  absolute_change_paise?: number | null;
+  percent_change?: number | null;
+  previous_inventory_value_paise?: number | null;
+}
+
+export interface AnalyticsOverview {
+  ready: boolean;
+  provenance?: string;
+  run_id?: number | null;
+  seed?: number | null;
+  snapshot_date?: string | null;
+  generated_at?: string | null;
+  note?: string | null;
+  period_start?: string | null;
+  period_end?: string | null;
+  period_days?: number | null;
+  inventory_value_paise?: number | null;
+  stock_units?: number | null;
+  live_inventory_value_paise?: number | null;
+  live_stock_units?: number | null;
+  live_matches_period_end?: boolean | null;
+  turnover?: number | null;
+  turnover_definition?: string;
+  turnover_reference_target?: number | null;
+  days_inventory_outstanding?: number | null;
+  dio_definition?: string;
+  inventory_to_sales?: number | null;
+  inventory_to_sales_definition?: string;
+  cogs_paise?: number | null;
+  revenue_paise?: number | null;
+  excess_inventory_value_paise?: number | null;
+  excess_definition?: string;
+  cost_model?: string;
+  reconciliation_note?: string | null;
+  insights?: AnalyticsInsight[];
+}
+
+export interface RankedProduct {
+  rank: number;
+  product_id: number;
+  sku: string;
+  name: string;
+  category?: string;
+  inventory_value_paise: number;
+  stock_units: number;
+  revenue_paise: number;
+  sold_units: number;
+}
+
+export interface MovementReport {
+  ready: boolean;
+  note?: string | null;
+  formula?: string;
+  conserved_units?: boolean | null;
+  conserved_value?: boolean | null;
+  opening_units?: number | null;
+  receipts_units?: number | null;
+  fulfilled_sales_units?: number | null;
+  returns_units?: number | null;
+  adjustments_units?: number | null;
+  writeoff_units?: number | null;
+  closing_units?: number | null;
+  opening_value_paise?: number | null;
+  receipts_value_paise?: number | null;
+  cogs_paise?: number | null;
+  returns_value_paise?: number | null;
+  adjustments_value_paise?: number | null;
+  writeoff_value_paise?: number | null;
+  closing_value_paise?: number | null;
+}
+
+export interface AbcCell {
+  cell: string;
+  abc: string;
+  xyz: string;
+  sku_count: number;
+  inventory_value_paise: number;
+  revenue_paise: number;
+  value_share?: number | null;
+  interpretation: string;
+}
+
+export interface AbcProduct {
+  product_id: number;
+  sku: string;
+  name: string;
+  category?: string;
+  cell: string;
+  abc: string;
+  xyz: string;
+  revenue_paise: number;
+  inventory_value_paise: number;
+  cv?: number | null;
+  interpretation: string;
+}
+
+export interface SlowItem {
+  product_id: number;
+  sku: string;
+  name: string;
+  category?: string;
+  stock_units: number;
+  inventory_value_paise: number;
+  sold_units_30d: number;
+  sold_units_90d: number;
+  forecast_daily_demand?: number | null;
+  forecast_days_of_supply?: number | null;
+  days_since_recorded_sale?: number | null;
+  excess_units?: number | null;
+  excess_value_paise?: number | null;
+  risk_level?: string | null;
+  suggested_action: string;
+  action_basis: string;
+}
+
+export interface SupplierScore {
+  supplier_id: number;
+  name: string;
+  product_count: number;
+  stock_units: number;
+  stock_value_paise: number;
+  modeled_lead_days: number;
+  catalog_reliability: number;
+  simulated_receipts: number;
+  simulated_on_time_rate?: number | null;
+  average_delay_days?: number | null;
+  open_reorder_qty: number;
+}
+
+export interface AnalyticsFilters {
+  ready: boolean;
+  note?: string | null;
+  categories: string[];
+  suppliers: { id: number; name: string }[];
+  products: { id: number; sku: string; name: string; category?: string }[];
+  years: number[];
+  months: string[];
+  date_min?: string | null;
+  date_max?: string | null;
+}
+
+export interface CalendarItem {
+  id: string;
+  kind: string;
+  product_id?: number | null;
+  title: string;
+  status?: string | null;
+  qty?: number | null;
+  trace_id?: string | null;
+  date?: string | null;
+  date_role: "actual" | "predicted" | "unavailable" | string;
+  detail: string;
+  limitation?: string | null;
 }
 
 export interface ApiErrorBody {

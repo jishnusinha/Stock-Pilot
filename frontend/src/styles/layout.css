@@ -95,6 +95,21 @@
   margin-bottom: 16px;
 }
 
+.grid-kpi-6 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.analytics-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+  align-items: start;
+}
+
 .grid-2-1 {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.9fr);
@@ -150,7 +165,9 @@
 
 @media (max-width: 1024px) {
   .grid-kpi-4,
-  .perf-grid {
+  .grid-kpi-6,
+  .perf-grid,
+  .analytics-split {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -206,7 +223,9 @@
   }
 
   .grid-kpi-4,
-  .perf-grid {
+  .grid-kpi-6,
+  .perf-grid,
+  .analytics-split {
     grid-template-columns: 1fr;
   }
 

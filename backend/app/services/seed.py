@@ -49,6 +49,18 @@ def seed_demo(
 ) -> dict:
     as_of = as_of or settings.demo_date
     rng = np.random.default_rng(seed)
+    for table in (
+        "inventory_receipts",
+        "inventory_ledger",
+        "inventory_daily_snapshots",
+        "analytics_runs",
+    ):
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+        if exists:
+            conn.execute(f"DELETE FROM {table}")
     conn.execute("DELETE FROM sales")
     conn.execute("DELETE FROM inventory_movements")
     conn.execute("DELETE FROM forecasts")

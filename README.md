@@ -1,7 +1,7 @@
 # StockPilot
 
 Local-first **inventory intelligence** demo for one synthetic retailer.  
-**No LLM.** Ten compact scikit-learn agents + a deterministic reorder optimizer. UI matches the five screens in `mockup-ui/`.
+**No LLM.** Ten compact scikit-learn agents + a deterministic reorder optimizer, plus a reconstructed inventory-history analytics layer (StockPilot 3.0).
 
 ```
 React (Vite)  →  FastAPI  →  SQLite + joblib models
@@ -68,6 +68,9 @@ $env:OMP_NUM_THREADS=2
 python -m app.cli bootstrap --products 200 --days 365 --seed 42 --threads 2 --fast
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
+# additive analytics history (does not rewrite sales, stock, or models)
+python -m app.cli build-analytics --seed 42
+
 # other terminal
 cd frontend
 npm install
@@ -79,6 +82,7 @@ npm run dev
 | Path | Screen |
 |---|---|
 | `/` | Command Center |
+| `/analytics` | Inventory Analytics |
 | `/inventory` | Inventory Explorer |
 | `/simulator` | What-If Simulator |
 | `/agents` | Agent Intelligence |
@@ -121,7 +125,8 @@ cd backend
 - [Tradeoffs](docs/tradeoffs.md) · [Local verification](docs/local-verification.md)  
 - [UI v2 audit](docs/ui-v2-audit.md) · [UI v2 verification](docs/ui-v2-verification.md)  
 - [Interview demo](docs/interview-demo.md) · [Optional M5](docs/optional-m5.md)  
-- Progress: [cursor-prompts/PROGRESS.md](cursor-prompts/PROGRESS.md) · Repair: [cursor-prompts/REPAIR_PROGRESS.md](cursor-prompts/REPAIR_PROGRESS.md)
+- [StockPilot 3.0 architecture](docs/stockpilot-v3-architecture.md) · [Inventory metrics](docs/inventory-metrics.md) · [3.0 verification](docs/stockpilot-v3-verification.md)  
+- Progress: [cursor-prompts/PROGRESS.md](cursor-prompts/PROGRESS.md) · Repair: [cursor-prompts/REPAIR_PROGRESS.md](cursor-prompts/REPAIR_PROGRESS.md) · [3.0 progress](cursor-prompts/STOCKPILOT_V3_PROGRESS.md)
 
 ## Troubleshooting
 
@@ -136,6 +141,6 @@ cd backend
 
 ## Honesty labels
 
-Dashboard / performance figures from inventory replay are marked **SIMULATED**. Purchase cash is never labeled as “savings.” Price response is an **observational** association, not causal elasticity. Unmeasured latency/confidence shows **Not measured** / **N/A**.
+Dashboard / performance figures from inventory replay are marked **SIMULATED**. Purchase cash is never labeled as “savings.” The Command Center shows purchasing-cost inventory value and an excess-stock proxy. Historical inventory charts come from `python -m app.cli build-analytics` and are labeled **SYNTHETIC_RECONSTRUCTED**. They are not inferred by multiplying today’s stock by old prices, and a later goods receipt does not rewrite those snapshots. Price response is an **observational** association, not causal elasticity. Unmeasured latency/confidence shows **Not measured** / **N/A**.
 
 Holdout demand evaluation uses **rolling one-step** chronological scoring (honest WAPE ≈ 0.29 on the demo seed) — not a single prediction compared to holdout means.

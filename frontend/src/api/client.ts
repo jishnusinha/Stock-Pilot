@@ -3,8 +3,19 @@ import type {
   AgentCard,
   AgentRunSummary,
   AgentRunTrace,
+  AnalyticsFilters,
+  AnalyticsMonth,
+  AnalyticsOverview,
+  AnalyticsParams,
+  AbcCell,
+  AbcProduct,
+  CalendarItem,
   DashboardResponse,
   HealthResponse,
+  MovementReport,
+  RankedProduct,
+  SlowItem,
+  SupplierScore,
   PerformanceResponse,
   ProductCreateRequest,
   ProductDetail,
@@ -23,6 +34,15 @@ import type {
 
 const BASE =
   (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+
+function withQuery(path: string, params: AnalyticsParams = {}): string {
+  const q = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== "") q.set(key, String(value));
+  });
+  const text = q.toString();
+  return `${path}${text ? `?${text}` : ""}`;
+}
 
 function apiUrl(path: string): string {
   const p = path.startsWith("/") ? path : `/${path}`;
@@ -251,6 +271,82 @@ export const api = {
 
   performance(signal?: AbortSignal) {
     return fetchJson<PerformanceResponse>("/api/performance", { signal });
+  },
+
+  analyticsOverview(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<AnalyticsOverview>(withQuery("/api/analytics/overview", params), { signal });
+  },
+  analyticsTrend(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<{ ready: boolean; note?: string | null; months: AnalyticsMonth[] }>(
+      withQuery("/api/analytics/inventory-trend", params),
+      { signal },
+    );
+  },
+  analyticsTurnover(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<{ ready: boolean; months: AnalyticsMonth[]; definition?: string; reference_target?: number }>(
+      withQuery("/api/analytics/turnover", params),
+      { signal },
+    );
+  },
+  analyticsMovements(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<MovementReport>(withQuery("/api/analytics/movements", params), { signal });
+  },
+  analyticsTop(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<{ ready: boolean; by_value: RankedProduct[]; by_quantity: RankedProduct[] }>(
+      withQuery("/api/analytics/top-products", params),
+      { signal },
+    );
+  },
+  analyticsSales(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<{ ready: boolean; months: AnalyticsMonth[]; definition?: string }>(
+      withQuery("/api/analytics/inventory-sales", params),
+      { signal },
+    );
+  },
+  analyticsCategories(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<{
+      ready: boolean;
+      categories: {
+        category: string;
+        sku_count: number;
+        inventory_value_paise: number;
+        revenue_paise: number;
+        value_share?: number | null;
+      }[];
+    }>(withQuery("/api/analytics/category-breakdown", params), { signal });
+  },
+  analyticsAbc(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<{
+      ready: boolean;
+      abc_rule?: string;
+      xyz_rule?: string;
+      cells: AbcCell[];
+      products: AbcProduct[];
+      total: number;
+    }>(withQuery("/api/analytics/abc-xyz", params), { signal });
+  },
+  analyticsSlow(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<{ ready: boolean; definition?: string; as_of?: string | null; items: SlowItem[]; total: number }>(
+      withQuery("/api/analytics/slow-moving", params),
+      { signal },
+    );
+  },
+  analyticsSuppliers(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<{
+      ready: boolean;
+      catalog_reliability_label?: string;
+      simulated_label?: string;
+      items: SupplierScore[];
+    }>(withQuery("/api/analytics/suppliers", params), { signal });
+  },
+  analyticsFilters(signal?: AbortSignal) {
+    return fetchJson<AnalyticsFilters>("/api/analytics/filters", { signal });
+  },
+  reorderCalendar(signal?: AbortSignal) {
+    return fetchJson<{ items: CalendarItem[]; dated_count: number; undated_count: number; note: string }>(
+      "/api/reorders/calendar",
+      { signal },
+    );
   },
 
   async exportCsv(

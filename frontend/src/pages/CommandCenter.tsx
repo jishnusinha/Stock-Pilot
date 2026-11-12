@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Area,
   CartesianGrid,
@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { AlertTriangle, Bell, IndianRupee, ShoppingCart, Sparkles, TrendingUp } from "lucide-react";
+import { AlertTriangle, Bell, IndianRupee, ShoppingCart, TrendingUp } from "lucide-react";
 import { api } from "../api/client";
 import { ChartCard } from "../components/ChartCard";
 import { DataTable } from "../components/DataTable";
@@ -95,6 +95,7 @@ export function CommandCenter() {
         actions={
           <>
             <ProvenancePill />
+            <Link className="btn btn-secondary" to="/analytics">Inventory analytics</Link>
             <span className="badge badge-muted">{data?.as_of ? `Snapshot ${formatDate(data.as_of)}` : DEMO_SNAPSHOT_LABEL}</span>
           </>
         }
@@ -126,11 +127,14 @@ export function CommandCenter() {
           trend={kpis?.reorders_trend_pct != null ? `${kpis.reorders_trend_pct}%` : null}
         />
         <KpiCard
-          label="Simulated impact"
-          icon={<Sparkles size={16} />}
-          tone="warn"
-          value={kpis?.estimated_savings_paise != null ? formatPaise(kpis.estimated_savings_paise) : "N/A"}
-          sublabel={kpis?.savings_label ?? "Simulation estimate"}
+          label="Inventory value"
+          icon={<IndianRupee size={16} />}
+          value={formatPaise(kpis?.inventory_value_paise)}
+          sublabel={
+            kpis?.excess_inventory_value_paise != null
+              ? `Excess proxy ${formatPaise(kpis.excess_inventory_value_paise)}`
+              : "On-hand purchasing cost"
+          }
         />
       </div>
 

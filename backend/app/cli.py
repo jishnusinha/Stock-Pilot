@@ -15,6 +15,7 @@ from app.agents.base import TrainContext
 from app.agents.registry import AGENT_ORDER, get_agent, train_all
 from app.ml import artifacts
 from app.services.bootstrap import bootstrap, reset_demo
+from app.services.inventory_history import build_analytics
 from app.services.performance import evaluate_all
 from app.services.seed import seed_demo
 
@@ -83,6 +84,20 @@ def cmd_evaluate(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_build_analytics(args: argparse.Namespace) -> int:
+    conn = connect()
+    migrate(conn)
+    try:
+        info = build_analytics(conn, seed=args.seed, force=args.force)
+    except ValueError as exc:
+        print(exc)
+        return 1
+    finally:
+        conn.close()
+    print(info)
+    return 0
+
+
 def cmd_bootstrap(args: argparse.Namespace) -> int:
     _set_threads(args.threads)
     payload = bootstrap(
@@ -121,6 +136,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("model-status").set_defaults(func=cmd_model_status)
     sub.add_parser("evaluate").set_defaults(func=cmd_evaluate)
+
+    ap = sub.add_parser("build-analytics")
+    ap.add_argument("--seed", type=int, default=settings.seed)
+    ap.add_argument("--force", action="store_true")
+    ap.set_defaults(func=cmd_build_analytics)
 
     bp = sub.add_parser("bootstrap")
     bp.add_argument("--products", type=int, default=200)

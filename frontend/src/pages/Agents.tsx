@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Play } from "lucide-react";
 import { api } from "../api/client";
 import { AgentGraph, useGraphStatuses } from "../components/AgentGraph";
@@ -18,6 +19,8 @@ import { formatLatencyMs, NOT_MEASURED } from "../utils/format";
 
 export function Agents() {
   const toast = useToast();
+  const [params] = useSearchParams();
+  const traceParam = params.get("trace");
   const { data: agents, loading, error, offline, reload } = useApi((s) => api.agents(s), []);
   const [runs, setRuns] = useState<AgentRunSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string>("demand");
@@ -29,6 +32,22 @@ export function Agents() {
   useEffect(() => {
     api.agentRuns({ page: 1, page_size: 20 }).then(setRuns).catch(() => setRuns([]));
   }, []);
+
+  useEffect(() => {
+    if (!traceParam) return;
+    let cancelled = false;
+    api
+      .getTrace(traceParam)
+      .then((next) => {
+        if (!cancelled) setTrace(next);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) toast.error(e instanceof Error ? e.message : "Could not load trace");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [traceParam, toast]);
 
   const selectedAgent = agents?.find((a) => a.id === selectedId) ?? null;
   const traceNode = trace?.nodes.find((n) => n.agent_id === selectedId);

@@ -27,6 +27,7 @@ export function ProductDetailDrawer({
   onClose,
   onAdjust,
   onReorder,
+  onExplain,
   onEdit,
   onDelete,
 }: {
@@ -37,6 +38,7 @@ export function ProductDetailDrawer({
   onClose: () => void;
   onAdjust: () => void;
   onReorder: () => void;
+  onExplain?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
@@ -122,7 +124,7 @@ export function ProductDetailDrawer({
           {loading || !product ? (
             <Skeleton height={220} />
           ) : tab === "overview" ? (
-            <Overview product={product} onAdjust={onAdjust} onReorder={onReorder} onEdit={onEdit} onDelete={onDelete} />
+            <Overview product={product} onAdjust={onAdjust} onReorder={onReorder} onExplain={onExplain} onEdit={onEdit} onDelete={onDelete} />
           ) : tab === "sales" ? (
             <SalesTab product={product} />
           ) : (
@@ -138,12 +140,14 @@ function Overview({
   product,
   onAdjust,
   onReorder,
+  onExplain,
   onEdit,
   onDelete,
 }: {
   product: ProductDetail;
   onAdjust: () => void;
   onReorder: () => void;
+  onExplain?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
@@ -167,9 +171,20 @@ function Overview({
           <p className="tabular" style={{ fontWeight: 650 }}>
             Suggested quantity: {formatNumber(product.reorder_recommendation.suggested_qty)}
           </p>
-          <button type="button" className="btn btn-primary" onClick={onReorder}>
-            Review in simulator
-          </button>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <button type="button" className="btn btn-primary" onClick={onReorder}>
+              Simulate decision
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={!product.reorder_recommendation.trace_id}
+              title={product.reorder_recommendation.trace_id ? "Open the stored agent trace" : "No execution trace is stored for this recommendation"}
+              onClick={onExplain}
+            >
+              Explain recommendation
+            </button>
+          </div>
         </div>
       ) : (
         <p className="note">No open reorder recommendation for this SKU.</p>

@@ -471,6 +471,10 @@ export function Inventory() {
             setAdjustOpen(true);
           }}
           onReorder={() => navigate(`/simulator?product=${productId}`)}
+          onExplain={() => {
+            const trace = detail?.reorder_recommendation?.trace_id;
+            if (trace) navigate(`/agents?trace=${encodeURIComponent(trace)}`);
+          }}
           onEdit={() => setFormMode("edit")}
           onDelete={() => setDeleteOpen(true)}
         />

@@ -21,7 +21,7 @@ import { PageHeader, ProgressBar } from "../components/Controls";
 import { SkeletonCard } from "../components/Skeleton";
 import { useApi } from "../hooks/useApi";
 import { formatDate } from "../utils/dates";
-import { formatNumber, formatPaise, NOT_MEASURED } from "../utils/format";
+import { formatLatencyMs, formatNumber, formatPaise, NOT_MEASURED } from "../utils/format";
 
 export function Performance() {
   const { data, loading, error, offline, reload } = useApi((s) => api.performance(s), []);
@@ -55,7 +55,7 @@ export function Performance() {
     <>
       <PageHeader
         title="Model Performance"
-        subtitle={`Measured evaluation on synthetic data${data?.evaluation_mode ? ` · ${data.evaluation_mode}` : ""}. Business rows are a policy replay, not realized savings.`}
+        subtitle={`Measured evaluation on synthetic data${data?.evaluation_mode ? ` · ${data.evaluation_mode}` : ""}. Category and SKU accuracy are not stored separately, so WAPE is pooled. Business rows are a simulated policy replay${data?.business_simulation?.sample_skus != null ? ` on ${data.business_simulation.sample_skus} SKUs` : ""} and do not prove multi-agent superiority.`}
         actions={
           <select className="select" style={{ width: "auto" }} aria-label="Model filter" value={family} onChange={(e) => setFamily(e.target.value)}>
             <option value="all">All agents</option>
@@ -164,6 +164,7 @@ export function Performance() {
               <h2 className="card-title">Policy replay</h2>
               <p className="card-sub">
                 {data.business_simulation.label}. Mean defined cost is holding plus shortage on simulated paths. It is not purchasing spend and it is not realized savings.
+                {data.business_simulation.note ? ` ${data.business_simulation.note}` : ""}
               </p>
             </div>
           </div>
@@ -208,6 +209,24 @@ export function Performance() {
           )}
         </section>
       ) : null}
+
+      <section className="card">
+        <h2 className="card-title">Measured agent step time</h2>
+        <p className="card-sub">Durations stored on agent runs. This is not an API p95, and p95 API latency remains unmeasured.</p>
+        {(data?.agent_latency?.length ?? 0) === 0 ? (
+          <p className="note">No timed agent runs are stored yet.</p>
+        ) : (
+          <DataTable
+            rows={data?.agent_latency ?? []}
+            columns={[
+              { key: "agent", header: "Agent", render: (row) => row.agent_name.replaceAll("_", " ") },
+              { key: "runs", header: "Runs", align: "right", render: (row) => formatNumber(row.runs) },
+              { key: "mean", header: "Mean", align: "right", render: (row) => formatLatencyMs(row.mean_duration_ms) },
+              { key: "max", header: "Max", align: "right", render: (row) => formatLatencyMs(row.max_duration_ms) },
+            ]}
+          />
+        )}
+      </section>
     </>
   );
 }

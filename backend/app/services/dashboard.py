@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 
 from app.core.config import settings
 from app.db import repositories as repo
+from app.services.inventory_analytics import EXCESS_DEFINITION, live_inventory
 
 
 def build_dashboard(conn: sqlite3.Connection) -> dict:
@@ -25,27 +26,18 @@ def build_dashboard(conn: sqlite3.Connection) -> dict:
     ).fetchone()
     projected_rev = int(rev_row[0] or 0)
 
-    # Simulated savings proxy from open recommendations cost vs naive 2x order
-    sav_row = conn.execute(
-        """
-        SELECT COALESCE(SUM(estimated_cost_paise), 0)
-        FROM recommendations WHERE status IN ('open','proposed')
-        """
-    ).fetchone()
-    suggested_spend = int(sav_row[0] or 0)
-    # Label clearly as simulation — use 15% of suggested spend as illustrative avoided waste proxy only if recs exist
-    savings = int(suggested_spend * 0.12) if suggested_spend else None
-
+    stock = live_inventory(conn)
+    excess = stock["excess_inventory_value_paise"]
     kpis = {
         "projected_revenue_paise": projected_rev,
         "at_risk_products": agg["high_risk"],
         "suggested_reorders": agg["open_recommendations"],
-        "estimated_savings_paise": savings,
-        "savings_label": "Simulation estimate" if savings is not None else "N/A",
+        "inventory_value_paise": stock["inventory_value_paise"],
+        "excess_inventory_value_paise": excess,
+        "excess_label": EXCESS_DEFINITION if excess is not None else "No forecast cache, so the excess proxy is unavailable.",
         "projected_revenue_trend_pct": None,
         "at_risk_delta": None,
         "reorders_trend_pct": None,
-        "savings_trend_pct": None,
     }
 
     forecast_series = _aggregate_forecast_series(conn, as_of)

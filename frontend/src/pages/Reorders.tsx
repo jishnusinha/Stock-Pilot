@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { StatusBadge } from "../components/Badge";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -9,7 +10,7 @@ import { KpiCard } from "../components/KpiCard";
 import { PageHeader, SegmentedControl } from "../components/Controls";
 import { SkeletonCard } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
-import type { ReorderRow } from "../types/api";
+import type { CalendarItem, ReorderRow } from "../types/api";
 import { formatDateTime } from "../utils/dates";
 import { formatNumber, formatPaise } from "../utils/format";
 
@@ -18,6 +19,7 @@ type Action = "approve" | "reject" | "receive";
 
 export function Reorders() {
   const toast = useToast();
+  const navigate = useNavigate();
   const [rows, setRows] = useState<ReorderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +28,8 @@ export function Reorders() {
   const [selected, setSelected] = useState<ReorderRow | null>(null);
   const [pendingAction, setPendingAction] = useState<{ row: ReorderRow; action: Action } | null>(null);
   const [acting, setActing] = useState(false);
+  const [calendar, setCalendar] = useState<CalendarItem[]>([]);
+  const [calendarNote, setCalendarNote] = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -46,6 +50,16 @@ export function Reorders() {
 
   useEffect(() => {
     load();
+    api
+      .reorderCalendar()
+      .then((payload) => {
+        setCalendar(payload.items);
+        setCalendarNote(payload.note);
+      })
+      .catch(() => {
+        setCalendar([]);
+        setCalendarNote("The replenishment calendar could not be loaded.");
+      });
   }, [load]);
 
   const counts = useMemo(() => countByStatus(rows), [rows]);
@@ -92,6 +106,36 @@ export function Reorders() {
         <KpiCard label="Received" value={formatNumber(counts.received)} sublabel={formatPaise(counts.receivedValue)} />
         <KpiCard label="Rejected" tone="risk" value={formatNumber(counts.rejected)} sublabel="Closed without receipt" />
       </div>
+
+      <section className="card" style={{ marginBottom: 16 }}>
+        <h2 className="card-title">Replenishment timeline</h2>
+        <p className="card-sub">{calendarNote || "Dated items use a stored receipt or a stored prediction. Undated orders have no arrival date."}</p>
+        {calendar.length === 0 ? (
+          <EmptyState title="No timeline items" message="Recommendations, reorders, and high-risk cover dates will appear here when the API has them." />
+        ) : (
+          <ol className="timeline">
+            {calendar.map((item) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  className="timeline-item"
+                  onClick={() => {
+                    const match = rows.find((row) => row.product_id === item.product_id);
+                    if (match) setSelected(match);
+                    else if (item.product_id) navigate(`/inventory?product=${item.product_id}`);
+                  }}
+                >
+                  <strong>{item.date ?? "No date"}</strong>
+                  <span className="badge badge-muted">{item.date_role}</span>
+                  <span>{item.title}</span>
+                  <span className="note">{item.detail}</span>
+                  {item.limitation ? <span className="note">{item.limitation}</span> : null}
+                </button>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
 
       <div style={{ marginBottom: 12 }}>
         <SegmentedControl<Tab>

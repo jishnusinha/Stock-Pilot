@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Bell, Menu, Search, Settings } from "lucide-react";
+import { Bell, Menu, Moon, Search, Settings, Sun } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { DashboardAlert } from "../types/api";
 import { ProvenancePill } from "./ProvenancePill";
+import { getStoredTheme, toggleTheme, type ThemeName } from "../utils/theme";
 
 const CRUMBS: Record<string, string> = {
   "/": "Command Center",
+  "/analytics": "Inventory Analytics",
   "/inventory": "Inventory Explorer",
   "/simulator": "What-If Simulator",
   "/agents": "Agent Intelligence",
@@ -31,6 +33,7 @@ export function Topbar({
   const [alertError, setAlertError] = useState<string | null>(null);
   const [notesOpen, setNotesOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [theme, setTheme] = useState<ThemeName>(getStoredTheme);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,6 +103,14 @@ export function Topbar({
       <div className="hide-sm">
         <ProvenancePill />
       </div>
+      <button
+        type="button"
+        className="icon-btn"
+        aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+        onClick={() => setTheme((current) => toggleTheme(current))}
+      >
+        {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+      </button>
       <div className="menu-anchor">
         <button
           type="button"

@@ -1,5 +1,7 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
+import { SkeletonCard } from "./components/Skeleton";
 import { CommandCenter } from "./pages/CommandCenter";
 import { Inventory } from "./pages/Inventory";
 import { Simulator } from "./pages/Simulator";
@@ -8,11 +10,23 @@ import { Performance } from "./pages/Performance";
 import { Reorders } from "./pages/Reorders";
 import { Settings } from "./pages/Settings";
 
+const InventoryAnalytics = lazy(() =>
+  import("./pages/InventoryAnalytics").then((mod) => ({ default: mod.InventoryAnalytics })),
+);
+
 export function App() {
   return (
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<CommandCenter />} />
+        <Route
+          path="analytics"
+          element={
+            <Suspense fallback={<SkeletonCard />}>
+              <InventoryAnalytics />
+            </Suspense>
+          }
+        />
         <Route path="inventory" element={<Inventory />} />
         <Route path="simulator" element={<Simulator />} />
         <Route path="agents" element={<Agents />} />

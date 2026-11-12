@@ -50,6 +50,33 @@
   --z-popover: 70;
 }
 
+[data-theme="dark"] {
+  --color-bg: #0f1718;
+  --color-bg-subtle: #132022;
+  --color-text: #e7f0ee;
+  --color-text-secondary: #c5d5d1;
+  --color-text-muted: #8aa39c;
+  --color-primary: #3ddc97;
+  --color-primary-hover: #2fbf82;
+  --color-primary-soft: #14352c;
+  --color-mint: #14352c;
+  --color-forecast: #7cb7ff;
+  --color-forecast-soft: rgba(124, 183, 255, 0.18);
+  --color-warning: #f5b942;
+  --color-warning-bg: #3a2d12;
+  --color-risk: #ff8b80;
+  --color-risk-bg: #3a1c1c;
+  --color-info: #8eb6ff;
+  --color-info-bg: #17263f;
+  --color-border: #243436;
+  --color-border-strong: #345054;
+  --color-card: #172324;
+  --color-sidebar: #10191b;
+  --color-hover: #1e3033;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.28);
+  --shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

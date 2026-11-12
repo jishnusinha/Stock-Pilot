@@ -21,12 +21,12 @@ class DashboardKpis(BaseModel):
     projected_revenue_paise: int | None = None
     at_risk_products: int | None = None
     suggested_reorders: int | None = None
-    estimated_savings_paise: int | None = None
-    savings_label: str | None = "Simulation estimate"
+    inventory_value_paise: int | None = None
+    excess_inventory_value_paise: int | None = None
+    excess_label: str | None = None
     projected_revenue_trend_pct: float | None = None
     at_risk_delta: int | None = None
     reorders_trend_pct: float | None = None
-    savings_trend_pct: float | None = None
 
 
 class ForecastPoint(BaseModel):
@@ -131,6 +131,7 @@ class ReorderRecommendation(BaseModel):
     suggested_qty: int | None = None
     rationale: str | None = None
     product_id: int | None = None
+    trace_id: str | None = None
 
 
 class ProductDetail(BaseModel):
@@ -350,5 +351,26 @@ class PerformanceResponse(BaseModel):
     coverage: dict[str, Any] | None = None
     model_versions: list[ModelVersionOut]
     business_simulation: dict[str, Any] | None = None
+    agent_latency: list[dict[str, Any]] = Field(default_factory=list)
     data_source: str = "SYNTHETIC_DEMO"
     evaluation_mode: str | None = None
+
+
+class AnalyticsResponse(BaseModel):
+    """Aggregate analytics payload. Chart series and tables ride along as extra fields."""
+
+    model_config = {"extra": "allow"}
+
+    ready: bool
+    provenance: str = "SYNTHETIC_RECONSTRUCTED"
+    run_id: int | None = None
+    note: str | None = None
+
+
+class ReorderCalendarResponse(BaseModel):
+    model_config = {"extra": "allow"}
+
+    items: list[dict[str, Any]]
+    dated_count: int
+    undated_count: int
+    note: str

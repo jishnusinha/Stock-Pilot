@@ -17,7 +17,8 @@ describe("sidebar", () => {
       </MemoryRouter>,
     );
     expect(screen.getByRole("link", { name: /Command Center/i }).getAttribute("href")).toBe("/");
-    expect(screen.getByRole("link", { name: /Inventory/i }).getAttribute("href")).toBe("/inventory");
+    expect(screen.getByRole("link", { name: /Inventory Analytics/i }).getAttribute("href")).toBe("/analytics");
+    expect(screen.getByRole("link", { name: /^Inventory$/i }).getAttribute("href")).toBe("/inventory");
     expect(screen.getByRole("link", { name: /What-If Simulator/i }).getAttribute("href")).toBe("/simulator");
     expect(screen.getByRole("link", { name: /Agent Intelligence/i }).getAttribute("href")).toBe("/agents");
     expect(screen.getByRole("link", { name: /Model Performance/i }).getAttribute("href")).toBe("/performance");

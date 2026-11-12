@@ -175,17 +175,111 @@ CREATE INDEX IF NOT EXISTS idx_agent_runs_trace ON agent_runs(trace_id);
 CREATE INDEX IF NOT EXISTS idx_movements_product ON inventory_movements(product_id, created_at);
 """
 
+SCHEMA_V3 = """
+CREATE TABLE IF NOT EXISTS analytics_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  dataset_source TEXT NOT NULL,
+  seed INTEGER NOT NULL,
+  snapshot_date TEXT NOT NULL,
+  generated_at TEXT NOT NULL,
+  version TEXT NOT NULL,
+  status TEXT NOT NULL,
+  product_count INTEGER,
+  day_count INTEGER,
+  notes TEXT,
+  UNIQUE(dataset_source, seed, snapshot_date, version)
+);
 
-def migrate(conn: sqlite3.Connection) -> None:
-    conn.executescript(SCHEMA_V1)
+CREATE TABLE IF NOT EXISTS inventory_ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL REFERENCES analytics_runs(id) ON DELETE CASCADE,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  event_at TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  quantity_change INTEGER NOT NULL,
+  unit_cost_paise INTEGER NOT NULL,
+  reference TEXT,
+  provenance TEXT NOT NULL,
+  CHECK (unit_cost_paise >= 0),
+  CHECK (event_type IN ('opening','receipt','sale','return','adjustment','writeoff'))
+);
+
+CREATE TABLE IF NOT EXISTS inventory_daily_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL REFERENCES analytics_runs(id) ON DELETE CASCADE,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  snapshot_date TEXT NOT NULL,
+  opening_stock INTEGER NOT NULL,
+  received_units INTEGER NOT NULL,
+  sold_units INTEGER NOT NULL,
+  returned_units INTEGER NOT NULL,
+  adjustment_units INTEGER NOT NULL,
+  writeoff_units INTEGER NOT NULL,
+  unmet_demand_units INTEGER NOT NULL,
+  demand_units INTEGER NOT NULL,
+  closing_stock INTEGER NOT NULL,
+  unit_cost_paise INTEGER NOT NULL,
+  closing_value_paise INTEGER NOT NULL,
+  cogs_paise INTEGER NOT NULL,
+  revenue_paise INTEGER NOT NULL,
+  provenance TEXT NOT NULL,
+  UNIQUE(run_id, product_id, snapshot_date),
+  CHECK (opening_stock >= 0),
+  CHECK (closing_stock >= 0),
+  CHECK (received_units >= 0),
+  CHECK (sold_units >= 0),
+  CHECK (returned_units >= 0),
+  CHECK (writeoff_units >= 0),
+  CHECK (unmet_demand_units >= 0),
+  CHECK (demand_units >= 0),
+  CHECK (unit_cost_paise >= 0),
+  CHECK (closing_value_paise >= 0),
+  CHECK (cogs_paise >= 0),
+  CHECK (revenue_paise >= 0)
+);
+
+CREATE TABLE IF NOT EXISTS inventory_receipts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL REFERENCES analytics_runs(id) ON DELETE CASCADE,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  supplier_id INTEGER NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+  ordered_date TEXT NOT NULL,
+  promised_date TEXT NOT NULL,
+  received_date TEXT NOT NULL,
+  quantity INTEGER NOT NULL,
+  delay_days INTEGER NOT NULL,
+  on_time INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  provenance TEXT NOT NULL,
+  CHECK (quantity >= 0),
+  CHECK (on_time IN (0, 1)),
+  CHECK (kind IN ('replenishment','reconciliation'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_snap_run_date ON inventory_daily_snapshots(run_id, snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_snap_run_product ON inventory_daily_snapshots(run_id, product_id, snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_ledger_run_product ON inventory_ledger(run_id, product_id, event_at);
+CREATE INDEX IF NOT EXISTS idx_receipts_run_supplier ON inventory_receipts(run_id, supplier_id, received_date);
+CREATE INDEX IF NOT EXISTS idx_analytics_runs_status ON analytics_runs(status, generated_at);
+"""
+
+
+def _mark(conn: sqlite3.Connection, version: str) -> None:
     row = conn.execute(
-        "SELECT 1 FROM schema_migrations WHERE version = ?", ("v1",)
+        "SELECT 1 FROM schema_migrations WHERE version = ?", (version,)
     ).fetchone()
     if not row:
         conn.execute(
             "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
-            ("v1", datetime.now(timezone.utc).isoformat()),
+            (version, datetime.now(timezone.utc).isoformat()),
         )
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    conn.executescript(SCHEMA_V1)
+    conn.executescript(SCHEMA_V3)
+    _mark(conn, "v1")
+    _mark(conn, "v3")
     conn.commit()
 
 

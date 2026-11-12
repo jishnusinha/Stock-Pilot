@@ -4,6 +4,7 @@ import {
   BarChart3,
   Boxes,
   Brain,
+  ChartColumn,
   LayoutDashboard,
   LineChart,
   Package,
@@ -16,6 +17,7 @@ import { api } from "../api/client";
 
 const nav = [
   { to: "/", label: "Command Center", icon: LayoutDashboard, end: true },
+  { to: "/analytics", label: "Inventory Analytics", icon: ChartColumn },
   { to: "/inventory", label: "Inventory", icon: Boxes },
   { to: "/simulator", label: "What-If Simulator", icon: SlidersHorizontal },
   { to: "/agents", label: "Agent Intelligence", icon: Brain },

@@ -1,0 +1,37 @@
+# Python
+backend/.venv/
+backend/**/__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.joblib
+
+# Data & artifacts (generated)
+backend/data/
+backend/artifacts/
+!backend/artifacts/.gitkeep
+!backend/data/.gitkeep
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+
+# Env / OS
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+
+# Coverage
+.coverage
+htmlcov/
+coverage/

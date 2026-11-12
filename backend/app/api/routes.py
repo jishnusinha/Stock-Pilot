@@ -639,15 +639,25 @@ def performance(conn: sqlite3.Connection = Depends(get_db)) -> Any:
 
     wape, wape_d = metric_val("wape")
     mae, _ = metric_val("mae")
+    biz = eval_data.get("business") or {}
+    coverage = eval_data.get("coverage") or {}
+
+    # Prefer mean defined cost from policy replay when present
+    multi_cost = None
+    for row in biz.get("rows") or []:
+        if row.get("strategy") == "multi_agent":
+            multi_cost = row.get("cost_paise")
+            break
 
     kpis = [
         {
             "id": "wape",
-            "label": "Forecast WAPE (demand_only holdout)",
+            "label": "Forecast WAPE (rolling 1-step holdout)",
             "value": wape if wape is not None else "N/A",
             "unit": None if wape is None else "ratio",
             "measured": wape is not None,
-            "tooltip": "Chronological holdout on SYNTHETIC_DEMO sales",
+            "tooltip": eval_data.get("holdout_note")
+            or "Chronological rolling one-step holdout on SYNTHETIC_DEMO",
             "source": "SYNTHETIC_DEMO",
         },
         {
@@ -665,13 +675,13 @@ def performance(conn: sqlite3.Connection = Depends(get_db)) -> Any:
             "tooltip": "Insufficient timed request sample",
         },
         {
-            "id": "sim_savings",
-            "label": "Simulated suggested spend",
-            "value": (eval_data.get("business") or {}).get("total_suggested_cost_paise"),
+            "id": "sim_policy_cost",
+            "label": "Multi-agent mean defined cost",
+            "value": multi_cost,
             "unit": "paise",
-            "measured": bool(eval_data.get("business")),
-            "source": "SIMULATED",
-            "tooltip": "Simulation-derived — not realized retail savings",
+            "measured": multi_cost is not None,
+            "source": "SIMULATED_POLICY_REPLAY",
+            "tooltip": "Holding + shortage on identical SIMULATED paths — not retail savings",
         },
     ]
 
@@ -685,16 +695,31 @@ def performance(conn: sqlite3.Connection = Depends(get_db)) -> Any:
             }
         )
 
-    biz = eval_data.get("business") or {}
-    business_simulation = {
-        "label": biz.get("label", "SIMULATED"),
-        "rows": [
+    biz_rows = []
+    for row in biz.get("rows") or []:
+        biz_rows.append(
             {
-                "strategy": "Full multi-agent (sample)",
-                "savings_paise": biz.get("total_suggested_cost_paise"),
-                "note": "Suggested purchase cost on sample SKUs — not validated retail savings",
+                "strategy": row.get("strategy"),
+                "savings_paise": None,  # never label cost as savings
+                "cost_paise": row.get("cost_paise"),
+                "mean_stockout_days": row.get("mean_stockout_days"),
+                "mean_unmet_demand_units": row.get("mean_unmet_demand_units"),
+                "note": row.get("note"),
             }
-        ],
+        )
+    if not biz_rows and biz.get("total_suggested_cost_paise") is not None:
+        biz_rows = [
+            {
+                "strategy": "legacy_suggested_spend",
+                "savings_paise": None,
+                "cost_paise": biz.get("total_suggested_cost_paise"),
+                "note": "Suggested purchase cash — not savings",
+            }
+        ]
+
+    business_simulation = {
+        "label": biz.get("label", "SIMULATED_POLICY_REPLAY"),
+        "rows": biz_rows,
     }
 
     model_versions = [
@@ -708,16 +733,26 @@ def performance(conn: sqlite3.Connection = Depends(get_db)) -> Any:
         for v in versions
     ]
 
+    series = eval_data.get("backtest_series") or []
+    if not series:
+        series_path = settings.eval_dir / "backtest_series.json"
+        if series_path.exists():
+            try:
+                series = json.loads(series_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                series = []
+
     return {
         "kpis": kpis,
-        "backtest_series": [],  # detailed series optional; baselines carry measured WAPE
+        "backtest_series": series,
         "baseline_comparison": baseline,
         "coverage": {
-            "nominal": "p10–p90 ≈ 80%",
-            "empirical": None,
-            "pinball_loss": None,
+            "nominal": coverage.get("nominal", "p10–p90 ≈ 80%"),
+            "empirical": coverage.get("empirical"),
+            "pinball_loss": coverage.get("pinball_loss"),
         },
         "model_versions": model_versions,
         "business_simulation": business_simulation,
         "data_source": "SYNTHETIC_DEMO",
+        "evaluation_mode": eval_data.get("evaluation_mode"),
     }

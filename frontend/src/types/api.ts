@@ -196,6 +196,17 @@ export interface SimulateResponse {
   comparison_rows?: SimulateComparisonRow[];
   arrival_date?: string;
   data_source?: DataSource;
+  requested_qty?: number;
+  applied_qty?: number;
+  qty_normalization_note?: string;
+  price_effect?: {
+    type?: string;
+    units_delta?: number;
+    not_causal_elasticity?: boolean;
+    baseline_price_paise?: number;
+    proposed_price_paise?: number;
+  };
+  explanation?: string;
 }
 
 export interface SimulateComparisonRow {
@@ -312,9 +323,17 @@ export interface PerformanceResponse {
   model_versions: ModelVersion[];
   business_simulation?: {
     label: string;
-    rows: { strategy: string; savings_paise?: number | null; note?: string }[];
+    rows: {
+      strategy: string;
+      savings_paise?: number | null;
+      cost_paise?: number | null;
+      mean_stockout_days?: number | null;
+      mean_unmet_demand_units?: number | null;
+      note?: string;
+    }[];
   };
   data_source?: DataSource;
+  evaluation_mode?: string;
 }
 
 export interface ApiErrorBody {

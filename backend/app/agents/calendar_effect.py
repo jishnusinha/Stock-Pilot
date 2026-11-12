@@ -38,5 +38,19 @@ class CalendarEffectAgent(BaseAgent):
             [[dt.weekday(), dt.day, dt.isocalendar().week, float(kwargs.get("event_flag", 0))]],
             dtype=float,
         )
-        lift = float(self.model.predict(x)[0])
-        return {"product_id": product_id, "calendar_lift": lift, "as_of_date": str(as_of)[:10]}
+        level = float(self.model.predict(x)[0])
+        # Relative uplift vs average weekday (dow=3) with same dom/week
+        import numpy as np
+
+        baseline = float(
+            self.model.predict(
+                np.array([[3.0, float(dt.day), float(dt.isocalendar().week), 0.0]], dtype=float)
+            )[0]
+        )
+        uplift = level - baseline
+        return {
+            "product_id": product_id,
+            "calendar_lift": level,
+            "calendar_uplift": uplift,
+            "as_of_date": str(as_of)[:10],
+        }

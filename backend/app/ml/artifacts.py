@@ -38,8 +38,32 @@ def save_artifact(
     meta.setdefault("agent_name", agent_name)
     meta.setdefault("version", version)
     meta["saved_at"] = datetime.now(timezone.utc).isoformat()
+    try:
+        import sklearn
+
+        meta.setdefault("sklearn_version", sklearn.__version__)
+    except Exception:
+        pass
+    meta.setdefault("integrity", _file_checksum_placeholder())
+    mp.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    # Write checksum after bytes exist
+    meta["integrity"] = _sha256(ap)
     mp.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return ap, mp
+
+
+def _file_checksum_placeholder() -> str:
+    return "pending"
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def load_artifact(agent_name: str, version: str) -> tuple[Any, dict]:
@@ -51,6 +75,16 @@ def load_artifact(agent_name: str, version: str) -> tuple[Any, dict]:
     meta = {}
     if mp.exists():
         meta = json.loads(mp.read_text(encoding="utf-8"))
+        expected = meta.get("integrity")
+        if expected and expected != "pending":
+            actual = _sha256(ap)
+            if actual != expected:
+                raise ValueError(
+                    f"Artifact integrity mismatch for {agent_name}@{version}"
+                )
+        if meta.get("feature_columns") and meta.get("schema_version"):
+            # Consumers validate dims at predict time; record presence here
+            meta.setdefault("schema_validated_on_load", True)
     return obj, meta
 
 

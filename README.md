@@ -116,9 +116,10 @@ cd backend
 
 - [Product contract](docs/product-contract.md) · [Mockup map](docs/mockup-map.md)  
 - [Architecture](docs/architecture.md) · [API contract](docs/api-contract.md)  
-- [Model methods](docs/model-methods.md) · [Tradeoffs](docs/tradeoffs.md)  
+- [Model methods](docs/model-methods.md) · [Agent dependency contract](docs/agent-dependency-contract.md)  
+- [Tradeoffs](docs/tradeoffs.md) · [Local verification](docs/local-verification.md)  
 - [Interview demo](docs/interview-demo.md) · [Optional M5](docs/optional-m5.md)  
-- Progress log: [cursor-prompts/PROGRESS.md](cursor-prompts/PROGRESS.md)
+- Progress: [cursor-prompts/PROGRESS.md](cursor-prompts/PROGRESS.md) · Repair: [cursor-prompts/REPAIR_PROGRESS.md](cursor-prompts/REPAIR_PROGRESS.md)
 
 ## Troubleshooting
 
@@ -133,4 +134,6 @@ cd backend
 
 ## Honesty labels
 
-Dashboard savings and risk probabilities that come from inventory replay are marked **simulation**. Unmeasured latency/confidence shows **Not measured** / **N/A** — never invented screenshot numbers.
+Dashboard / performance figures from inventory replay are marked **SIMULATED**. Purchase cash is never labeled as “savings.” Price response is an **observational** association, not causal elasticity. Unmeasured latency/confidence shows **Not measured** / **N/A**.
+
+Holdout demand evaluation uses **rolling one-step** chronological scoring (honest WAPE ≈ 0.29 on the demo seed) — not a single prediction compared to holdout means.

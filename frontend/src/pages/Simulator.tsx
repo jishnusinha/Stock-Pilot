@@ -150,12 +150,20 @@ export function Simulator() {
 
   async function applyReorder() {
     if (!productId || overBudget) return;
-    const orderQty = Math.max(1, Math.round(qty > 0 ? qty : defaultOrderQty(selected)));
+    const applied = result?.applied_qty;
+    const orderQty =
+      applied != null && applied > 0
+        ? applied
+        : Math.max(1, Math.round(qty > 0 ? qty : defaultOrderQty(selected)));
+    if (applied === 0) {
+      alert("Applied quantity is 0 under budget/pack constraints — no draft created.");
+      return;
+    }
     try {
       await api.createReorder({
         product_id: productId,
         qty: orderQty,
-        notes: `What-If draft · lead ${leadDays}d · price ₹${(pricePaise / 100).toFixed(2)}`,
+        notes: `What-If draft · lead ${leadDays}d · price ₹${(pricePaise / 100).toFixed(2)} · applied ${orderQty}`,
       });
       navigate("/reorders");
     } catch (e) {
@@ -227,8 +235,9 @@ export function Simulator() {
           sublabel={overBudget ? "Exceeds budget" : "Within budget"}
         />
         <KpiCard
-          label="Gross margin"
+          label="Gross margin (rev − COGS)"
           value={formatPaise(result?.proposed_metrics.gross_margin_paise)}
+          sublabel="Not purchase cash"
         />
       </div>
 
@@ -263,6 +272,22 @@ export function Simulator() {
           {result?.arrival_date ? (
             <p style={{ fontSize: 13, color: "var(--color-text-muted)" }}>
               Expected arrival: {formatDate(result.arrival_date)} (lead time scenario)
+            </p>
+          ) : null}
+          {result?.applied_qty != null ? (
+            <p style={{ fontSize: 13, color: "var(--color-text-muted)" }}>
+              Requested qty {result.requested_qty ?? qty} → applied{" "}
+              <strong>{result.applied_qty}</strong>
+              {result.qty_normalization_note ? ` (${result.qty_normalization_note})` : ""}
+            </p>
+          ) : null}
+          {result?.price_effect?.not_causal_elasticity ? (
+            <p style={{ fontSize: 12, color: "var(--color-text-muted)" }}>
+              Price effect is observational association (Δ{" "}
+              {result.price_effect.units_delta != null
+                ? result.price_effect.units_delta.toFixed(2)
+                : "—"}{" "}
+              u/day) — not causal elasticity.
             </p>
           ) : null}
         </section>

@@ -1,12 +1,18 @@
-"""Excess inventory risk on simulated trajectories."""
+"""Excess inventory risk on simulated trajectories (no outcome leakage)."""
 
 from __future__ import annotations
 
 import numpy as np
 from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.model_selection import train_test_split
 
 from app.agents.base import PROVENANCE_SIMULATED, BaseAgent, TrainContext
-from app.agents.sim_supply import simulate_scenarios
+from app.agents.sim_supply import (
+    DECISION_TIME_FEATURES,
+    FEATURE_SCHEMA_VERSION,
+    decision_time_feature_vector,
+    simulate_scenarios,
+)
 
 
 class ExcessRiskAgent(BaseAgent):
@@ -29,7 +35,7 @@ class ExcessRiskAgent(BaseAgent):
                 (p["id"],),
             ).fetchone()
             ld = int(lead["base_lead_days"]) if lead else 7
-            x, _, y = simulate_scenarios(
+            x, _, y, _ = simulate_scenarios(
                 rng,
                 8 if ctx.fast else 15,
                 stock=int(p["stock_on_hand"]),
@@ -43,13 +49,31 @@ class ExcessRiskAgent(BaseAgent):
             ye.append(y)
         x_all = np.vstack(xs)
         y_all = np.concatenate(ye)
-        self.model = HistGradientBoostingClassifier(max_iter=60 if ctx.fast else 100, random_state=44)
-        self.model.fit(x_all, y_all)
-        self.metadata = {"feature_dim": x_all.shape[1], "source": PROVENANCE_SIMULATED}
+        if len(y_all) >= 20 and len(np.unique(y_all)) > 1:
+            x_tr, x_te, y_tr, y_te = train_test_split(
+                x_all, y_all, test_size=0.25, random_state=44, stratify=y_all
+            )
+        else:
+            x_tr, y_tr, x_te, y_te = x_all, y_all, x_all, y_all
+
+        self.model = HistGradientBoostingClassifier(
+            max_iter=60 if ctx.fast else 100, random_state=44
+        )
+        self.model.fit(x_tr, y_tr)
+        self.metadata = {
+            "feature_dim": int(x_all.shape[1]),
+            "feature_columns": list(DECISION_TIME_FEATURES),
+            "schema_version": FEATURE_SCHEMA_VERSION,
+            "source": PROVENANCE_SIMULATED,
+        }
         from app.ml import metrics
 
-        prob = self.model.predict_proba(x_all)[:, 1]
-        return {"brier_train": metrics.brier_score(y_all, prob)}
+        prob = self.model.predict_proba(x_te)[:, 1]
+        return {
+            "brier_holdout": metrics.brier_score(y_te, prob),
+            "n_train": int(len(y_tr)),
+            "n_eval": int(len(y_te)),
+        }
 
     def predict_one(self, conn, product_id: int, **kwargs) -> dict:
         prod = conn.execute(
@@ -58,24 +82,32 @@ class ExcessRiskAgent(BaseAgent):
         ).fetchone()
         if not prod:
             return {"product_id": product_id, "excess_risk": 0.0}
-        avg = conn.execute("SELECT AVG(units) FROM sales WHERE product_id=?", (product_id,)).fetchone()[0]
-        eta = float(kwargs.get("eta_days", 7))
+        avg = conn.execute(
+            "SELECT AVG(units) FROM sales WHERE product_id=?", (product_id,)
+        ).fetchone()[0]
+        eta = float(kwargs.get("eta_days", kwargs.get("lead_days", 7)))
         order_qty = int(kwargs.get("order_qty", prod["pack_size"]))
-        feat = np.array(
-            [
-                [
-                    prod["stock_on_hand"],
-                    prod["reorder_point"],
-                    prod["pack_size"],
-                    float(avg or 1.0),
-                    eta,
-                    order_qty,
-                    0,
-                    prod["stock_on_hand"],
-                    0.0,
-                ]
-            ],
-            dtype=float,
-        )
+        daily = float(kwargs.get("daily_demand", avg or 1.0))
+        demand_p90 = float(kwargs.get("demand_p90", daily * 1.25))
+        feat = decision_time_feature_vector(
+            stock=prod["stock_on_hand"],
+            reorder_point=prod["reorder_point"],
+            pack_size=prod["pack_size"],
+            daily_demand=daily,
+            lead_days=eta,
+            order_qty=order_qty,
+            shelf_life_days=prod["shelf_life_days"],
+            demand_p90=demand_p90,
+        ).reshape(1, -1)
+        expected = self.metadata.get("feature_columns", list(DECISION_TIME_FEATURES))
+        if feat.shape[1] != len(expected):
+            raise ValueError(
+                f"excess_risk feature dim {feat.shape[1]} != schema {len(expected)}"
+            )
         p = float(self.model.predict_proba(feat)[0, 1])
-        return {"product_id": product_id, "excess_risk": p, "provenance": PROVENANCE_SIMULATED}
+        return {
+            "product_id": product_id,
+            "excess_risk": p,
+            "provenance": PROVENANCE_SIMULATED,
+            "schema_version": FEATURE_SCHEMA_VERSION,
+        }

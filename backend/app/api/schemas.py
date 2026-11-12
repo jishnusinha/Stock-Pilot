@@ -189,6 +189,8 @@ class SimulateMetrics(BaseModel):
     purchase_cost_paise: int | None = None
     revenue_paise: int | None = None
     gross_margin_paise: int | None = None
+    cogs_paise: int | None = None
+    demand_p50: float | None = None
 
 
 class SimulateSeriesPoint(BaseModel):
@@ -204,6 +206,8 @@ class SimulateComparisonRow(BaseModel):
 
 
 class SimulateResponse(BaseModel):
+    model_config = {"extra": "allow"}
+
     baseline_label: str = "Current plan"
     proposed_label: str = "Proposed plan"
     baseline_series: list[SimulateSeriesPoint]
@@ -215,6 +219,10 @@ class SimulateResponse(BaseModel):
     data_source: str = "SIMULATED_SUPPLY"
     recommendation_id: int | None = None
     explanation: str | None = None
+    requested_qty: int | None = None
+    applied_qty: int | None = None
+    qty_normalization_note: str | None = None
+    price_effect: dict[str, Any] | None = None
 
 
 class SaveScenarioRequest(BaseModel):
@@ -314,6 +322,8 @@ class ModelVersionOut(BaseModel):
 
 
 class PerformanceResponse(BaseModel):
+    model_config = {"extra": "allow"}
+
     kpis: list[PerformanceMetric]
     backtest_series: list[dict[str, Any]] = Field(default_factory=list)
     baseline_comparison: list[dict[str, Any]] = Field(default_factory=list)
@@ -321,3 +331,4 @@ class PerformanceResponse(BaseModel):
     model_versions: list[ModelVersionOut]
     business_simulation: dict[str, Any] | None = None
     data_source: str = "SYNTHETIC_DEMO"
+    evaluation_mode: str | None = None

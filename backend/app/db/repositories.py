@@ -239,6 +239,25 @@ def adjust_stock(
         """,
         (product_id, delta, reason, reference, utc_now()),
     )
+    # Mark cached risk/recommendations stale until re-run decision
+    conn.execute(
+        """
+        UPDATE product_risk_cache
+        SET risk_level = 'medium',
+            updated_at = ?,
+            provenance = COALESCE(provenance, '') || '|STALE_AFTER_STOCK_ADJUST'
+        WHERE product_id = ?
+        """,
+        (utc_now(), product_id),
+    )
+    conn.execute(
+        """
+        UPDATE recommendations
+        SET status = 'stale'
+        WHERE product_id = ? AND status IN ('open', 'proposed', 'pending', 'active')
+        """,
+        (product_id,),
+    )
     return get_product(conn, product_id)  # type: ignore[return-value]
 
 

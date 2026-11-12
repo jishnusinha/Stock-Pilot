@@ -149,13 +149,15 @@ export function Performance() {
         <section className="card">
           <h2 className="card-title">{data.business_simulation.label}</h2>
           <p style={{ fontSize: 12, color: "var(--color-text-muted)", marginBottom: 12 }}>
-            Illustrative simulation savings — not measured operational ROI
+            Measured SIMULATED policy replay on identical demand paths — costs, not retail savings.
+            {data.evaluation_mode ? ` Evaluation: ${data.evaluation_mode}.` : ""}
           </p>
           <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ borderBottom: "1px solid var(--color-border)", textAlign: "left" }}>
                 <th style={{ padding: 8 }}>Strategy</th>
-                <th style={{ padding: 8 }}>Simulated savings</th>
+                <th style={{ padding: 8 }}>Mean defined cost</th>
+                <th style={{ padding: 8 }}>Mean stockout days</th>
                 <th style={{ padding: 8 }}>Note</th>
               </tr>
             </thead>
@@ -164,7 +166,16 @@ export function Performance() {
                 <tr key={row.strategy} style={{ borderBottom: "1px solid var(--color-border)" }}>
                   <td style={{ padding: 8 }}>{row.strategy}</td>
                   <td style={{ padding: 8 }}>
-                    {row.savings_paise != null ? formatPaise(row.savings_paise) : "N/A"}
+                    {row.cost_paise != null
+                      ? formatPaise(row.cost_paise)
+                      : row.savings_paise != null
+                        ? formatPaise(row.savings_paise)
+                        : "N/A"}
+                  </td>
+                  <td style={{ padding: 8 }} className="tabular">
+                    {row.mean_stockout_days != null
+                      ? formatNumber(row.mean_stockout_days)
+                      : "—"}
                   </td>
                   <td style={{ padding: 8, color: "var(--color-text-muted)" }}>{row.note ?? ""}</td>
                 </tr>

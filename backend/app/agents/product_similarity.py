@@ -44,11 +44,20 @@ class ProductSimilarityAgent(BaseAgent):
         idx = pids.index(product_id)
         dists, inds = self.model.kneighbors(self.model._fit_X[idx : idx + 1])  # noqa: SLF001
         neighbors = []
+        neighbor_means = []
         for d, j in zip(dists[0], inds[0]):
             nid = pids[int(j)]
             if nid == product_id:
                 continue
-            neighbors.append({"product_id": nid, "distance": float(d)})
+            # Reconstruct mean demand from stored training vectors (first component)
+            neigh_mean = float(self.model._fit_X[int(j), 0])  # noqa: SLF001
+            neighbors.append({"product_id": nid, "distance": float(d), "mean_demand": neigh_mean})
+            neighbor_means.append(neigh_mean)
             if len(neighbors) >= 5:
                 break
-        return {"product_id": product_id, "neighbors": neighbors}
+        similarity_demand = float(np.mean(neighbor_means)) if neighbor_means else None
+        return {
+            "product_id": product_id,
+            "neighbors": neighbors,
+            "similarity_demand": similarity_demand,
+        }

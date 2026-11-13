@@ -1,8 +1,15 @@
 services:
   stockpilot:
     build: .
+    image: stockpilot:latest
     ports:
       - "80:80"
+    environment:
+      # Free-tier friendly defaults (override for a fuller demo on larger instances)
+      STOCKPILOT_THREADS: "1"
+      STOCKPILOT_BOOTSTRAP_PRODUCTS: "50"
+      STOCKPILOT_BOOTSTRAP_DAYS: "90"
+      STOCKPILOT_BOOTSTRAP_FAST: "true"
     volumes:
       - stockpilot-data:/data
     restart: unless-stopped

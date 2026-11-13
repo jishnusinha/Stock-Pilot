@@ -26,12 +26,17 @@ COPY deploy/entrypoint.sh /entrypoint.sh
 RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 WORKDIR /app/backend
-ENV STOCKPILOT_THREADS=2 \
+# Defaults sized for AWS free-tier t2/t3.micro (~1 GB). Override for fuller demos.
+ENV STOCKPILOT_THREADS=1 \
+    STOCKPILOT_BOOTSTRAP_PRODUCTS=50 \
+    STOCKPILOT_BOOTSTRAP_DAYS=90 \
+    STOCKPILOT_BOOTSTRAP_FAST=true \
     STOCKPILOT_DB_PATH=/data/stockpilot.db \
     STOCKPILOT_MODEL_DIR=/data/models \
-    OMP_NUM_THREADS=2 \
-    OPENBLAS_NUM_THREADS=2 \
-    MKL_NUM_THREADS=2
+    OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1
 
 EXPOSE 80
 VOLUME ["/data"]

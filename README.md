@@ -62,8 +62,10 @@ chmod +x scripts/*.sh
 
 One container serves the built UI (nginx on port 80) and proxies `/api` to FastAPI. SQLite + models live on a named volume.
 
+Defaults are **AWS free-tier friendly**: 50 products × 90 days, 1 BLAS thread (`STOCKPILOT_BOOTSTRAP_*` / `STOCKPILOT_THREADS`). Full local demo size is 200 × 365.
+
 ```bash
-# from repo root
+# from repo root (build on a machine with ≥4 GB RAM — not on t2/t3.micro)
 docker compose up -d --build
 
 # UI:  http://localhost/   (or http://<ec2-public-ip>/)
@@ -71,9 +73,53 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-First start runs `bootstrap --fast` + `build-analytics` if `/data/stockpilot.db` is missing (often 10–30 minutes; prefer ≥8 GB RAM). Later restarts reuse the volume. Reseed: `docker compose down -v` then `up` again.
+First start runs bootstrap + `build-analytics` only if `/data/stockpilot.db` is missing. Later restarts reuse the volume. Reseed: `docker compose down -v` then `up` again.
 
-On a fresh Ubuntu EC2: install `docker.io` + `docker-compose-v2`, open security-group TCP 80, clone the repo, then `docker compose up -d --build`.
+### AWS free tier (t2.micro / t3.micro, ~1 GB RAM)
+
+Do **not** build the image on the micro instance (Node + pip will OOM). Build on your PC, push to Docker Hub, pull and run on EC2.
+
+**On your PC** (Docker Desktop):
+
+```powershell
+cd "c:\D Drive\ML Master projects\StockPilot"
+docker compose build
+docker tag stockpilot:latest <your-dockerhub-user>/stockpilot:latest
+docker login
+docker push <your-dockerhub-user>/stockpilot:latest
+```
+
+**On Ubuntu EC2** (security group: TCP 22 from your IP, TCP 80 from anywhere):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io
+sudo usermod -aG docker "$USER"
+# log out and back in
+
+# 2 GB swap — required so sklearn bootstrap fits in 1 GB RAM
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+docker pull <your-dockerhub-user>/stockpilot:latest
+docker run -d --name stockpilot --restart unless-stopped \
+  -p 80:80 \
+  -e STOCKPILOT_THREADS=1 \
+  -e STOCKPILOT_BOOTSTRAP_PRODUCTS=50 \
+  -e STOCKPILOT_BOOTSTRAP_DAYS=90 \
+  -e STOCKPILOT_BOOTSTRAP_FAST=true \
+  -v stockpilot-data:/data \
+  <your-dockerhub-user>/stockpilot:latest
+
+docker logs -f stockpilot
+```
+
+First boot still takes a while (swap is slow). If it OOMs, drop further: `STOCKPILOT_BOOTSTRAP_PRODUCTS=30` and `STOCKPILOT_BOOTSTRAP_DAYS=60`, then `docker rm -f stockpilot` and recreate after `docker volume rm stockpilot-data`.
+
+For the full 200×365 demo, use a paid instance with ≥8 GB RAM (or keep free tier and accept the smaller catalog).
 
 ## Manual commands (equivalent)
 

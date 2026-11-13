@@ -15,6 +15,10 @@ backend/artifacts/
 !backend/artifacts/.gitkeep
 !backend/data/.gitkeep
 
+# Pre-trained Docker seed (local export; do not commit large binaries)
+deploy/seed/**
+!deploy/seed/.gitkeep
+
 # Real retail raw workbook + large generated CSVs (keep samples/manifest/docs)
 data/real/uci_online_retail/raw/*.xlsx
 data/real/uci_online_retail/raw/*.zip

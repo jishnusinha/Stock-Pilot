@@ -33,7 +33,12 @@ class Settings:
     model_dir: Path = Path(
         os.environ.get("STOCKPILOT_MODEL_DIR", str(BACKEND_ROOT / "artifacts" / "models"))
     )
-    eval_dir: Path = BACKEND_ROOT / "artifacts" / "evaluation"
+    eval_dir: Path = Path(
+        os.environ.get(
+            "STOCKPILOT_EVAL_DIR",
+            str(BACKEND_ROOT / "artifacts" / "evaluation"),
+        )
+    )
     cors_origins: list[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",

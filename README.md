@@ -58,6 +58,23 @@ chmod +x scripts/*.sh
 
 > Unix scripts were authored for portability; **this workspace verified Windows**.
 
+## Docker (EC2 / single host)
+
+One container serves the built UI (nginx on port 80) and proxies `/api` to FastAPI. SQLite + models live on a named volume.
+
+```bash
+# from repo root
+docker compose up -d --build
+
+# UI:  http://localhost/   (or http://<ec2-public-ip>/)
+# API: http://localhost/docs
+docker compose logs -f
+```
+
+First start runs `bootstrap --fast` + `build-analytics` if `/data/stockpilot.db` is missing (often 10–30 minutes; prefer ≥8 GB RAM). Later restarts reuse the volume. Reseed: `docker compose down -v` then `up` again.
+
+On a fresh Ubuntu EC2: install `docker.io` + `docker-compose-v2`, open security-group TCP 80, clone the repo, then `docker compose up -d --build`.
+
 ## Manual commands (equivalent)
 
 ```powershell

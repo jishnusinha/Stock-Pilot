@@ -1,0 +1,11 @@
+services:
+  stockpilot:
+    build: .
+    ports:
+      - "80:80"
+    volumes:
+      - stockpilot-data:/data
+    restart: unless-stopped
+
+volumes:
+  stockpilot-data:

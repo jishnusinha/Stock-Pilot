@@ -1,13 +1,14 @@
 # StockPilot
 
-Local-first **inventory intelligence** demo for one synthetic retailer.  
-**No LLM.** Ten compact scikit-learn agents + a deterministic reorder optimizer, reconstructed inventory-history analytics (3.0), and **ML-powered predictive Inventory Analytics** (StockPilot 3.2).
+Local-first **inventory intelligence** demo for one synthetic retailer, plus an isolated **real-retail ML evaluation** track (StockPilot 3.3).  
+**No LLM.** Ten compact scikit-learn agents + a deterministic reorder optimizer, reconstructed inventory-history analytics (3.0), predictive Inventory Analytics (3.2), and UCI Online Retail holdout benchmarking (3.3).
 
 ```
 React (Vite)  →  FastAPI  →  SQLite + joblib models
+             ↘  data/real + experiments/real_data (isolated)
 ```
 
-Money is stored as integer **paise** and shown as ₹. Dataset provenance: `SYNTHETIC_DEMO` / risk labels `SIMULATED_SUPPLY`.
+Money in the demo is integer **paise** (shown as ₹). Demo provenance: `SYNTHETIC_DEMO` / risk labels `SIMULATED_SUPPLY`. Real evaluation uses **GBP** UCI transactions (`REAL_RETAIL_UCI`) and never overwrites demo DB/models.
 
 ## Prerequisites (verified on this workspace)
 
@@ -112,6 +113,21 @@ Invoke-RestMethod "http://127.0.0.1:8000/api/analytics/predictive/overview?horiz
 Invoke-RestMethod "http://127.0.0.1:8000/api/analytics/predictive/inventory-projection?mode=recommended&horizon_days=14"
 ```
 
+## Real retail evaluation (3.3)
+
+Official UCI Online Retail → clean CSVs → chronological splits → leakage-safe features → train HGB + quantiles + intermittence → baselines → holdout metrics.  
+UI: **Model Performance → Real Retail Evaluation**. Does **not** validate supplier/stockout agents.
+
+```powershell
+cd backend
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt   # includes openpyxl
+python -m app.cli real-data-all --max-products 100 --seed 42 --threads 2
+python -m app.cli real-data-status
+```
+
+Docs: [data/README.md](data/README.md) · [docs/real-data-evaluation.md](docs/real-data-evaluation.md) · [docs/real-data-interview-guide.md](docs/real-data-interview-guide.md) · [docs/stockpilot-v33-verification.md](docs/stockpilot-v33-verification.md)
+
 ## Tests
 
 ```powershell
@@ -143,7 +159,8 @@ cd backend
 - [UI v2 audit](docs/ui-v2-audit.md) · [UI v2 verification](docs/ui-v2-verification.md)  
 - [Interview demo](docs/interview-demo.md) · [Optional M5](docs/optional-m5.md)  
 - [StockPilot 3.0 architecture](docs/stockpilot-v3-architecture.md) · [Inventory metrics](docs/inventory-metrics.md) · [3.0 verification](docs/stockpilot-v3-verification.md)  
-- Progress: [cursor-prompts/PROGRESS.md](cursor-prompts/PROGRESS.md) · Repair: [cursor-prompts/REPAIR_PROGRESS.md](cursor-prompts/REPAIR_PROGRESS.md) · [3.0 progress](cursor-prompts/STOCKPILOT_V3_PROGRESS.md)
+- Real data: [data/README.md](data/README.md) · [evaluation](docs/real-data-evaluation.md) · [interview guide](docs/real-data-interview-guide.md) · [3.3 verification](docs/stockpilot-v33-verification.md)  
+- Progress: [cursor-prompts/PROGRESS.md](cursor-prompts/PROGRESS.md) · [3.2](cursor-prompts/STOCKPILOT_V32_PROGRESS.md) · [3.3](cursor-prompts/STOCKPILOT_V33_PROGRESS.md)
 
 ## Troubleshooting
 

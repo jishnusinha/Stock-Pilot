@@ -138,6 +138,115 @@ def cmd_bootstrap(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_real_data_download(args: argparse.Namespace) -> int:
+    from app.real_data.download import download_official, import_local_xlsx, write_download_sidecar
+
+    try:
+        if args.path:
+            info = import_local_xlsx(args.path, force=args.force)
+        else:
+            info = download_official(force=args.force)
+        write_download_sidecar(info)
+    except Exception as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(info, indent=2))
+    return 0
+
+
+def cmd_real_data_prepare(args: argparse.Namespace) -> int:
+    from app.real_data.pipeline import prepare
+
+    try:
+        payload = prepare(max_products=args.max_products, seed=args.seed)
+    except Exception as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({k: v for k, v in payload.items() if k != "splits"} | {
+        "splits": {
+            "boundaries": payload["splits"].get("boundaries"),
+            "n_selected": payload["splits"].get("sku_selection", {}).get("n_selected"),
+            "train_rows": payload["splits"].get("train", {}).get("rows"),
+            "validation_rows": payload["splits"].get("validation", {}).get("rows"),
+            "test_rows": payload["splits"].get("test", {}).get("rows"),
+        }
+    }, indent=2, default=str))
+    return 0
+
+
+def cmd_real_data_train(args: argparse.Namespace) -> int:
+    from app.real_data.train import train_models
+
+    _set_threads(args.threads)
+    try:
+        meta = train_models(threads=args.threads, seed=args.seed, fast=args.fast)
+    except Exception as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({
+        "model_version": meta.get("model_version"),
+        "n_train_rows": meta.get("n_train_rows"),
+        "n_validation_rows": meta.get("n_validation_rows"),
+        "demand_metrics": meta.get("demand_metrics"),
+        "trained_at": meta.get("trained_at"),
+        "models_dir": str(__import__("app.real_data.paths", fromlist=["MODELS_DIR"]).MODELS_DIR),
+    }, indent=2))
+    return 0
+
+
+def cmd_real_data_evaluate(_args: argparse.Namespace) -> int:
+    from app.real_data.evaluate import evaluate
+
+    try:
+        payload = evaluate()
+    except Exception as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({
+        "ml": payload.get("ml"),
+        "baselines": payload.get("baselines"),
+        "interval": payload.get("interval"),
+        "best_wape_method": payload.get("best_wape_method"),
+        "n_test_rows": payload.get("n_test_rows"),
+        "evaluation_mode": payload.get("evaluation_mode"),
+    }, indent=2))
+    return 0
+
+
+def cmd_real_data_status(_args: argparse.Namespace) -> int:
+    from app.real_data.pipeline import status
+
+    print(json.dumps(status(), indent=2))
+    return 0
+
+
+def cmd_real_data_all(args: argparse.Namespace) -> int:
+    from app.real_data.pipeline import run_all
+
+    _set_threads(args.threads)
+    try:
+        payload = run_all(
+            max_products=args.max_products,
+            seed=args.seed,
+            threads=args.threads,
+            fast=args.fast,
+            force_download=args.force,
+            skip_download=args.skip_download,
+        )
+    except Exception as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    summary = {
+        "download_status": (payload.get("download") or {}).get("status"),
+        "selected_skus": payload.get("prepare", {}).get("splits", {}).get("sku_selection", {}).get("n_selected"),
+        "ml": (payload.get("evaluate") or {}).get("ml"),
+        "best_wape_method": (payload.get("evaluate") or {}).get("best_wape_method"),
+        "ready_for_ui": (payload.get("status") or {}).get("ready_for_ui"),
+    }
+    print(json.dumps(summary, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="stockpilot")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -186,6 +295,38 @@ def build_parser() -> argparse.ArgumentParser:
     bp.add_argument("--fast", action="store_true")
     bp.add_argument("--force", action="store_true")
     bp.set_defaults(func=cmd_bootstrap)
+
+    rdd = sub.add_parser("real-data-download", help="Download or import official UCI Online Retail XLSX")
+    rdd.add_argument("--path", default=None, help="Optional local official XLSX to import")
+    rdd.add_argument("--force", action="store_true")
+    rdd.set_defaults(func=cmd_real_data_download)
+
+    rdp = sub.add_parser("real-data-prepare", help="Clean, aggregate, and chronologically split real data")
+    rdp.add_argument("--max-products", type=int, default=100)
+    rdp.add_argument("--seed", type=int, default=42)
+    rdp.set_defaults(func=cmd_real_data_prepare)
+
+    rdt = sub.add_parser("real-data-train", help="Train REAL_RETAIL_UCI models (isolated artifacts)")
+    rdt.add_argument("--threads", type=int, default=settings.threads)
+    rdt.add_argument("--seed", type=int, default=42)
+    rdt.add_argument("--fast", action="store_true")
+    rdt.set_defaults(func=cmd_real_data_train)
+
+    sub.add_parser("real-data-evaluate", help="Evaluate real-data models vs baselines on holdout").set_defaults(
+        func=cmd_real_data_evaluate
+    )
+    sub.add_parser("real-data-status", help="Show real-data experiment readiness").set_defaults(
+        func=cmd_real_data_status
+    )
+
+    rda = sub.add_parser("real-data-all", help="Download → prepare → train → evaluate")
+    rda.add_argument("--max-products", type=int, default=100)
+    rda.add_argument("--seed", type=int, default=42)
+    rda.add_argument("--threads", type=int, default=settings.threads)
+    rda.add_argument("--fast", action="store_true")
+    rda.add_argument("--force", action="store_true", help="Re-download raw workbook")
+    rda.add_argument("--skip-download", action="store_true")
+    rda.set_defaults(func=cmd_real_data_all)
 
     return p
 

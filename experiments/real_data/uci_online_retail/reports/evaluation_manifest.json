@@ -1,0 +1,31 @@
+{
+  "experiment_id": "REAL_RETAIL_UCI",
+  "dataset_source": "REAL_RETAIL_UCI",
+  "source_url": "https://archive.ics.uci.edu/dataset/352/online+retail",
+  "doi": "https://doi.org/10.24432/C5BW33",
+  "attribution": "Daqing Chen, Online Retail, UCI Machine Learning Repository",
+  "model_version": "real_uci_v1",
+  "evaluation_mode": "rolling_one_step_ahead",
+  "evaluated_at": "2026-11-13T06:59:12.511448+00:00",
+  "artifacts": {
+    "metrics": "C:\\D Drive\\ML Master projects\\StockPilot\\experiments\\real_data\\uci_online_retail\\reports\\metrics.json",
+    "baseline_comparison": "C:\\D Drive\\ML Master projects\\StockPilot\\experiments\\real_data\\uci_online_retail\\reports\\baseline_comparison.csv",
+    "test_predictions": "C:\\D Drive\\ML Master projects\\StockPilot\\experiments\\real_data\\uci_online_retail\\reports\\test_predictions.csv",
+    "feature_importance": "C:\\D Drive\\ML Master projects\\StockPilot\\experiments\\real_data\\uci_online_retail\\reports\\feature_importance.csv",
+    "models_dir": "C:\\D Drive\\ML Master projects\\StockPilot\\experiments\\real_data\\uci_online_retail\\models"
+  },
+  "split_boundaries": {
+    "train_start": "2010-12-01",
+    "train_end": "2011-10-14",
+    "val_start": "2011-10-15",
+    "val_end": "2011-11-11",
+    "test_start": "2011-11-12",
+    "test_end": "2011-12-09"
+  },
+  "status": "evaluated",
+  "train_meta": {
+    "trained_at": "2026-11-13T06:58:40.044350+00:00",
+    "seed": 42,
+    "n_train_rows": 29000
+  }
+}

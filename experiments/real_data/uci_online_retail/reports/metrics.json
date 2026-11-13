@@ -1,0 +1,82 @@
+{
+  "experiment_id": "REAL_RETAIL_UCI",
+  "model_version": "real_uci_v1",
+  "evaluation_mode": "rolling_one_step_ahead",
+  "evaluated_at": "2026-11-13T06:59:12.511448+00:00",
+  "n_test_rows": 2800,
+  "n_skus": 100,
+  "currency": "GBP",
+  "ml": {
+    "mae": 25.912224023336613,
+    "rmse": 89.46204613901546,
+    "wape": 0.6611405697537157
+  },
+  "baselines": {
+    "seasonal_naive_7": {
+      "mae": 37.46214285714286,
+      "rmse": 108.09897250734096,
+      "wape": 0.9558323689414167
+    },
+    "moving_average_28": {
+      "mae": 34.76230867346939,
+      "rmse": 90.8498401198349,
+      "wape": 0.8869471235519477
+    }
+  },
+  "interval": {
+    "pinball_p10": 3.851714131595003,
+    "pinball_p90": 11.858773507418185,
+    "empirical_coverage_p10_p90": 0.8307142857142857,
+    "mean_interval_width": 52.89216475684176,
+    "nominal_label": "p10\u2013p90 (nominal ~80% if well calibrated; not a 95% CI)"
+  },
+  "intermittence": {
+    "brier": 0.15904490172464053,
+    "precision": 0.4217573221757322,
+    "recall": 0.8765217391304347,
+    "f1": 0.5694915254237288,
+    "target_label": "zero_recorded_sales_day",
+    "roc_auc": 0.9049848558866634
+  },
+  "segments": {
+    "high_volume": {
+      "name": "high_volume",
+      "n_rows": 952,
+      "n_skus": 34,
+      "mae": 48.345436306452015,
+      "rmse": 149.07077839757463,
+      "wape": 0.6384980559041982
+    },
+    "low_volume": {
+      "name": "low_volume",
+      "n_rows": 924,
+      "n_skus": 33,
+      "mae": 12.003216504794624,
+      "rmse": 20.37534494988042,
+      "wape": 0.9250956752381544
+    },
+    "intermittent_mean_lt_1": {
+      "name": "intermittent_mean_lt_1",
+      "n_rows": 56,
+      "n_skus": 2,
+      "mae": 22.48589358510159,
+      "rmse": 35.328522100873606,
+      "wape": 66.27421267187837
+    },
+    "overall": {
+      "n_rows": 2800,
+      "n_skus": 100,
+      "mae": 25.912224023336613,
+      "rmse": 89.46204613901546,
+      "wape": 0.6611405697537157
+    }
+  },
+  "best_wape_method": "hist_gradient_boosting",
+  "training_metadata_path": "C:\\D Drive\\ML Master projects\\StockPilot\\experiments\\real_data\\uci_online_retail\\models\\training_metadata.json",
+  "notes": [
+    "Rolling one-step-ahead: prior test actuals may enter later lags.",
+    "Observed sales \u2260 true unconstrained demand.",
+    "p10\u2013p90 is not a 95% confidence interval.",
+    "Does not validate supplier ETA, stockout, or excess-risk agents."
+  ]
+}

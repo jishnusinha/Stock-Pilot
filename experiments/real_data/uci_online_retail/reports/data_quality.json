@@ -1,0 +1,64 @@
+{
+  "before_cleaning": {
+    "total_source_rows": 541909,
+    "date_min": "2010-12-01 08:26:00",
+    "date_max": "2011-12-09 12:50:00",
+    "n_distinct_stock_codes": 4070,
+    "n_distinct_invoices": 25900,
+    "missing_by_column": {
+      "InvoiceNo": 0,
+      "StockCode": 0,
+      "Description": 1454,
+      "Quantity": 0,
+      "InvoiceDate": 0,
+      "UnitPrice": 0,
+      "CustomerID": 135080,
+      "Country": 0
+    },
+    "cancellation_invoice_rows": 9288,
+    "negative_quantity_rows": 10624,
+    "zero_quantity_rows": 0,
+    "nonpositive_price_rows": 2517,
+    "missing_description_rows": 1454,
+    "missing_customer_id_rows": 135080,
+    "exact_duplicate_rows": 10147,
+    "admin_stock_code_rows": 2806,
+    "extreme_quantity_abs_gt_1000": 174,
+    "null_invoice_date_rows": 0,
+    "currency": "GBP",
+    "timezone_note": "Source timestamps have no guaranteed timezone; values kept as parsed local clock times."
+  },
+  "after_cleaning": {
+    "positive_sales_rows": 527899,
+    "returns_or_excluded_rows": 14010,
+    "removal_reason_counts": {
+      "negative_quantity": 8706,
+      "admin_stock_code": 2806,
+      "nonpositive_price": 2498
+    },
+    "distinct_sales_stock_codes": 3908,
+    "date_min_sales": "2010-12-01 00:00:00",
+    "date_max_sales": "2011-12-09 00:00:00",
+    "duplicate_policy": "Exact duplicate invoice lines are retained; they can be legitimate repeated lines.",
+    "return_matching_limitation": "Returns are not uniquely matchable to original sales dates; they are audited separately and never treated as negative demand.",
+    "outlier_policy": "Large quantities are retained unless rows fail other explicit exclusion rules."
+  },
+  "processed_at": "2026-11-13T06:57:30.009638+00:00",
+  "experiment_id": "REAL_RETAIL_UCI",
+  "processing_version": "1.0.0",
+  "files": {
+    "transactions_clean_csv": "C:\\D Drive\\ML Master projects\\StockPilot\\data\\real\\uci_online_retail\\processed\\transactions_clean.csv",
+    "returns_summary_csv": "C:\\D Drive\\ML Master projects\\StockPilot\\data\\real\\uci_online_retail\\processed\\returns_summary.csv",
+    "daily_sales_csv": "C:\\D Drive\\ML Master projects\\StockPilot\\data\\real\\uci_online_retail\\processed\\daily_sales.csv",
+    "products_csv": "C:\\D Drive\\ML Master projects\\StockPilot\\data\\real\\uci_online_retail\\processed\\products.csv",
+    "raw_xlsx": "C:\\D Drive\\ML Master projects\\StockPilot\\data\\real\\uci_online_retail\\raw\\Online Retail.xlsx",
+    "raw_sha256": "43465a06f2ccf7c8b5bd2892bc7defb52f97487934fe93b16ae4c3936424676d",
+    "file_sizes_bytes": {
+      "transactions_clean": 69321773,
+      "returns_summary": 1578239,
+      "daily_sales": 25950217,
+      "products": 231155,
+      "raw_xlsx": 23715344
+    }
+  }
+}

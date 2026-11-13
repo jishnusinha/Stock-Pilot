@@ -19,13 +19,17 @@ import { ErrorState } from "../components/ErrorState";
 import { KpiCard } from "../components/KpiCard";
 import { PageHeader, ProgressBar } from "../components/Controls";
 import { SkeletonCard } from "../components/Skeleton";
+import { RealRetailPanel } from "../features/performance/RealRetailPanel";
 import { useApi } from "../hooks/useApi";
 import { formatDate } from "../utils/dates";
 import { formatLatencyMs, formatNumber, formatPaise, NOT_MEASURED } from "../utils/format";
 
+type EvalSource = "synthetic" | "real";
+
 export function Performance() {
   const { data, loading, error, offline, reload } = useApi((s) => api.performance(s), []);
   const [family, setFamily] = useState("all");
+  const [source, setSource] = useState<EvalSource>("synthetic");
 
   const versions = useMemo(() => {
     const rows = data?.model_versions ?? [];
@@ -33,7 +37,7 @@ export function Performance() {
     return rows.filter((row) => row.name.toLowerCase().includes(family));
   }, [data?.model_versions, family]);
 
-  if (loading && !data) {
+  if (loading && !data && source === "synthetic") {
     return (
       <>
         <PageHeader title="Model Performance" subtitle="Loading evaluation…" />
@@ -45,7 +49,7 @@ export function Performance() {
       </>
     );
   }
-  if (error && !data) return <ErrorState message={error} onRetry={reload} offline={offline} />;
+  if (error && !data && source === "synthetic") return <ErrorState message={error} onRetry={reload} offline={offline} />;
 
   const kpis = data?.kpis ?? [];
   const coverage = data?.coverage;
@@ -55,17 +59,39 @@ export function Performance() {
     <>
       <PageHeader
         title="Model Performance"
-        subtitle={`Measured evaluation on synthetic data${data?.evaluation_mode ? ` · ${data.evaluation_mode}` : ""}. Category and SKU accuracy are not stored separately, so WAPE is pooled. Business rows are a simulated policy replay${data?.business_simulation?.sample_skus != null ? ` on ${data.business_simulation.sample_skus} SKUs` : ""} and do not prove multi-agent superiority.`}
+        subtitle={
+          source === "real"
+            ? "REAL_RETAIL_UCI holdout evaluation on official UCI Online Retail transactions. Currency GBP. Observed sales ≠ unconstrained demand. Does not validate supplier ETA or stockout agents."
+            : `Measured evaluation on synthetic data${data?.evaluation_mode ? ` · ${data.evaluation_mode}` : ""}. Category and SKU accuracy are not stored separately, so WAPE is pooled. Business rows are a simulated policy replay${data?.business_simulation?.sample_skus != null ? ` on ${data.business_simulation.sample_skus} SKUs` : ""} and do not prove multi-agent superiority.`
+        }
         actions={
-          <select className="select" style={{ width: "auto" }} aria-label="Model filter" value={family} onChange={(e) => setFamily(e.target.value)}>
-            <option value="all">All agents</option>
-            <option value="demand">Demand</option>
-            <option value="risk">Risk</option>
-            <option value="price">Price</option>
-            <option value="supplier">Supplier</option>
-          </select>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <select
+              className="select"
+              style={{ width: "auto" }}
+              aria-label="Evaluation source"
+              value={source}
+              onChange={(e) => setSource(e.target.value as EvalSource)}
+            >
+              <option value="synthetic">Synthetic Demo</option>
+              <option value="real">Real Retail Evaluation</option>
+            </select>
+            {source === "synthetic" ? (
+              <select className="select" style={{ width: "auto" }} aria-label="Model filter" value={family} onChange={(e) => setFamily(e.target.value)}>
+                <option value="all">All agents</option>
+                <option value="demand">Demand</option>
+                <option value="risk">Risk</option>
+                <option value="price">Price</option>
+                <option value="supplier">Supplier</option>
+              </select>
+            ) : null}
+          </div>
         }
       />
+
+      {source === "real" ? <RealRetailPanel /> : null}
+      {source === "synthetic" ? (
+        <>
 
       <div className="grid-kpi-4">
         {kpis.slice(0, 4).map((k) => (
@@ -278,6 +304,8 @@ export function Performance() {
             ))}
           </ul>
         </section>
+      ) : null}
+        </>
       ) : null}
     </>
   );

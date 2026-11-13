@@ -37,6 +37,12 @@ import type {
   PredictiveRecommendations,
   PredictiveExplain,
   PredictiveDataQuality,
+  RealDataStatus,
+  RealDataSummary,
+  RealDataMetrics,
+  RealDataBaselineRow,
+  RealDataPredictionRow,
+  RealDataMetadata,
 } from "../types/api";
 
 const BASE =
@@ -278,6 +284,48 @@ export const api = {
 
   performance(signal?: AbortSignal) {
     return fetchJson<PerformanceResponse>("/api/performance", { signal });
+  },
+
+  realDataStatus(signal?: AbortSignal) {
+    return fetchJson<RealDataStatus>("/api/real-data/status", { signal });
+  },
+  realDataSummary(signal?: AbortSignal) {
+    return fetchJson<RealDataSummary>("/api/real-data/summary", { signal });
+  },
+  realDataMetrics(signal?: AbortSignal) {
+    return fetchJson<RealDataMetrics>("/api/real-data/metrics", { signal });
+  },
+  realDataBaselines(signal?: AbortSignal) {
+    return fetchJson<{ experiment_id: string; rows: RealDataBaselineRow[] }>(
+      "/api/real-data/baselines",
+      { signal },
+    );
+  },
+  realDataProducts(limit = 200, signal?: AbortSignal) {
+    return fetchJson<{ experiment_id: string; products: { stock_code: string; total_actual?: number; mae?: number }[] }>(
+      `/api/real-data/products?limit=${limit}`,
+      { signal },
+    );
+  },
+  realDataPredictions(
+    params: { stock_code?: string; date_from?: string; date_to?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ) {
+    const q = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== "") q.set(k, String(v));
+    });
+    const qs = q.toString();
+    return fetchJson<{
+      experiment_id: string;
+      evaluation_mode: string;
+      total_matching_rows: number;
+      returned_rows: number;
+      rows: RealDataPredictionRow[];
+    }>(`/api/real-data/predictions${qs ? `?${qs}` : ""}`, { signal });
+  },
+  realDataMetadata(signal?: AbortSignal) {
+    return fetchJson<RealDataMetadata>("/api/real-data/metadata", { signal });
   },
 
   analyticsOverview(params: AnalyticsParams = {}, signal?: AbortSignal) {

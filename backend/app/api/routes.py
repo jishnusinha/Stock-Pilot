@@ -19,12 +19,14 @@ from app.core.config import settings
 from app.db import repositories as repo
 from app.ml import artifacts
 from app.api.analytics_routes import router as analytics_router
+from app.api.real_data_routes import router as real_data_router
 from app.services.dashboard import build_dashboard
 from app.services.orchestrator import run_decision
 from app.services.simulate_api import run_simulate
 
 router = APIRouter(prefix="/api")
 router.include_router(analytics_router)
+router.include_router(real_data_router)
 
 # Edges match orchestrator signal flow (see docs/agent-dependency-contract.md).
 # First-wave agents read sales/catalog features directly; there is no "data" model node.

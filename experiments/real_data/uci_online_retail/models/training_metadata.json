@@ -1,0 +1,74 @@
+{
+  "experiment_id": "REAL_RETAIL_UCI",
+  "model_version": "real_uci_v1",
+  "processing_version": "1.0.0",
+  "trained_at": "2026-11-13T06:58:40.044350+00:00",
+  "seed": 42,
+  "threads": 2,
+  "fast": false,
+  "feature_columns": [
+    "lag_1",
+    "lag_7",
+    "lag_14",
+    "lag_28",
+    "roll_mean_7",
+    "roll_mean_14",
+    "roll_mean_28",
+    "roll_std_7",
+    "roll_std_14",
+    "roll_std_28",
+    "dow",
+    "dom",
+    "month",
+    "week_of_year",
+    "sin_dow",
+    "cos_dow",
+    "hist_zero_share_28",
+    "hist_mean_28",
+    "price_gbp",
+    "price_vs_hist_median"
+  ],
+  "n_train_rows": 29000,
+  "n_validation_rows": 2800,
+  "n_test_rows_available": 2800,
+  "skus": 100,
+  "demand_params": {
+    "max_iter": 120,
+    "learning_rate": 0.08,
+    "max_depth": 4,
+    "min_samples_leaf": 20,
+    "random_state": 42
+  },
+  "quantile_n_estimators": 60,
+  "evaluation_note": "Validation metrics used for sanity checks only; test frozen until evaluate.",
+  "python_packages": {
+    "sklearn": "1.5.2",
+    "pandas": "2.2.3",
+    "numpy": "2.1.3"
+  },
+  "demand_metrics": {
+    "train": {
+      "mae": 22.655102148927966,
+      "rmse": 65.47060027797328,
+      "wape": 0.7487198927844728
+    },
+    "validation": {
+      "mae": 25.09164799229381,
+      "rmse": 80.99972892544783,
+      "wape": 0.7110633508266047
+    }
+  },
+  "interval_validation": {
+    "pinball_p10": 3.4966882882926997,
+    "pinball_p90": 10.412709500746237,
+    "coverage": 0.8725,
+    "mean_width": 57.9121547873435
+  },
+  "intermittence_metrics": {
+    "brier_train": 0.1710521000074619,
+    "brier_validation": 0.18421829467661544
+  },
+  "status": "trained",
+  "currency": "GBP",
+  "target": "daily_observed_units_sold"
+}

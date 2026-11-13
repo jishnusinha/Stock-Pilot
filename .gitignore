@@ -15,6 +15,15 @@ backend/artifacts/
 !backend/artifacts/.gitkeep
 !backend/data/.gitkeep
 
+# Real retail raw workbook + large generated CSVs (keep samples/manifest/docs)
+data/real/uci_online_retail/raw/*.xlsx
+data/real/uci_online_retail/raw/*.zip
+data/real/uci_online_retail/processed/transactions_clean.csv
+data/real/uci_online_retail/processed/returns_summary.csv
+data/real/uci_online_retail/processed/daily_sales.csv
+experiments/real_data/uci_online_retail/models/*.joblib
+experiments/real_data/**/__pycache__/
+
 # Node
 frontend/node_modules/
 frontend/dist/

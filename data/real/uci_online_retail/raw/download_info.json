@@ -1,0 +1,16 @@
+{
+  "status": "downloaded",
+  "path": "C:\\D Drive\\ML Master projects\\StockPilot\\data\\real\\uci_online_retail\\raw\\Online Retail.xlsx",
+  "sha256": "43465a06f2ccf7c8b5bd2892bc7defb52f97487934fe93b16ae4c3936424676d",
+  "bytes": 23715344,
+  "source_url": "https://archive.ics.uci.edu/static/public/352/online+retail.zip",
+  "page_url": "https://archive.ics.uci.edu/dataset/352/online+retail",
+  "downloaded_at": "2026-11-13T06:54:22.957977+00:00",
+  "dataset_name": "Online Retail",
+  "dataset_id": 352,
+  "doi": "https://doi.org/10.24432/C5BW33",
+  "license": "CC BY 4.0",
+  "attribution": "Daqing Chen, Online Retail, UCI Machine Learning Repository",
+  "experiment_id": "REAL_RETAIL_UCI",
+  "processing_version": "1.0.0"
+}

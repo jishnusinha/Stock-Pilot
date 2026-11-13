@@ -859,3 +859,130 @@ export interface ApiErrorBody {
   detail?: string | { msg: string }[];
   message?: string;
 }
+
+/** REAL_RETAIL_UCI evaluation track (isolated from SYNTHETIC_DEMO). */
+export interface RealDataStatus {
+  experiment_id: string;
+  raw_xlsx_present: boolean;
+  daily_sales_present: boolean;
+  splits_present: boolean;
+  models_present: boolean;
+  metrics_present: boolean;
+  ready_for_ui: boolean;
+  metrics_summary?: {
+    wape?: number | null;
+    mae?: number | null;
+    rmse?: number | null;
+    best_wape_method?: string | null;
+    evaluation_mode?: string | null;
+    model_version?: string | null;
+  } | null;
+  selected_sku_count?: number | null;
+  split_ranges?: Record<string, string> | null;
+  reports_dir?: string;
+  models_dir?: string;
+}
+
+export interface RealDataSummary {
+  experiment_id: string;
+  dataset_name: string;
+  attribution: string;
+  source_url: string;
+  doi: string;
+  license: string;
+  currency: string;
+  ready: boolean;
+  status: RealDataStatus;
+  metrics?: RealDataMetrics | null;
+  data_quality?: {
+    before?: Record<string, unknown> | null;
+    after?: Record<string, unknown> | null;
+  } | null;
+  split_summary?: {
+    boundaries?: Record<string, string>;
+    sku_selection?: { n_selected?: number; selected_stock_codes?: string[]; criteria?: string };
+    train?: { rows?: number; zero_sale_rate?: number };
+    validation?: { rows?: number };
+    test?: { rows?: number; zero_sale_rate?: number };
+  } | null;
+  limitations?: string[];
+}
+
+export interface RealDataMetrics {
+  experiment_id?: string;
+  model_version?: string;
+  evaluation_mode?: string;
+  n_test_rows?: number;
+  n_skus?: number;
+  currency?: string;
+  ml?: { mae?: number | null; rmse?: number | null; wape?: number | null };
+  baselines?: {
+    seasonal_naive_7?: { mae?: number | null; rmse?: number | null; wape?: number | null };
+    moving_average_28?: { mae?: number | null; rmse?: number | null; wape?: number | null };
+  };
+  interval?: {
+    pinball_p10?: number | null;
+    pinball_p90?: number | null;
+    empirical_coverage_p10_p90?: number | null;
+    mean_interval_width?: number | null;
+    nominal_label?: string;
+  };
+  intermittence?: {
+    brier?: number | null;
+    precision?: number | null;
+    recall?: number | null;
+    f1?: number | null;
+    roc_auc?: number | null;
+    target_label?: string;
+  };
+  best_wape_method?: string | null;
+  notes?: string[];
+  segments?: Record<string, unknown>;
+}
+
+export interface RealDataBaselineRow {
+  method: string;
+  mae?: number | null;
+  rmse?: number | null;
+  wape?: number | null;
+}
+
+export interface RealDataPredictionRow {
+  date: string;
+  stock_code: string;
+  product_id?: number;
+  actual_units: number;
+  predicted_units: number;
+  seasonal_naive_units?: number;
+  moving_average_units?: number;
+  p10_units?: number;
+  p50_units?: number;
+  p90_units?: number;
+  abs_error?: number;
+  model_version?: string;
+  dataset_source?: string;
+  evaluation_mode?: string;
+}
+
+export interface RealDataMetadata {
+  experiment_id: string;
+  dataset_name: string;
+  source_url: string;
+  doi: string;
+  license: string;
+  attribution: string;
+  currency: string;
+  raw_columns?: string[];
+  daily_sales_columns?: string[];
+  provenance_label?: string;
+  synthetic_label?: string;
+  cleaning_counts?: Record<string, unknown> | null;
+  sample_paths?: Record<string, string>;
+  training?: {
+    model_version?: string;
+    trained_at?: string;
+    feature_columns?: string[];
+    seed?: number;
+  };
+  manifest?: Record<string, unknown>;
+}

@@ -1,112 +1,130 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ComposedChart,
-  Legend,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import { Boxes, Gauge, IndianRupee, Scale, Timer, Warehouse } from "lucide-react";
 import { api } from "../api/client";
-import { ChartCard } from "../components/ChartCard";
-import { PageHeader, SegmentedControl } from "../components/Controls";
-import { DataTable } from "../components/DataTable";
-import { EmptyState } from "../components/EmptyState";
+import { PageHeader } from "../components/Controls";
 import { ErrorState } from "../components/ErrorState";
-import { KpiCard } from "../components/KpiCard";
 import { ProductDetailDrawer } from "../components/ProductDetailDrawer";
 import { SkeletonCard } from "../components/Skeleton";
+import { AnalyticsDataQualityPanel } from "../features/inventory-analytics/AnalyticsDataQualityPanel";
+import { AnalyticsWorkspaceTabs } from "../features/inventory-analytics/AnalyticsWorkspaceTabs";
+import { DecisionComparisonChart } from "../features/inventory-analytics/DecisionComparisonChart";
+import { DemandOutlookChart } from "../features/inventory-analytics/DemandOutlookChart";
+import { ExcessInventoryPanel } from "../features/inventory-analytics/ExcessInventoryPanel";
+import { HistoricalAnalyticsPanel, type HistoricalBundle } from "../features/inventory-analytics/HistoricalAnalyticsPanel";
+import { InventoryProjectionChart } from "../features/inventory-analytics/InventoryProjectionChart";
+import { MLInsightPanel } from "../features/inventory-analytics/MLInsightPanel";
+import { PredictionProvenance, provenanceFromOverview } from "../features/inventory-analytics/PredictionProvenance";
+import { PredictiveErrorBoundary } from "../features/inventory-analytics/PredictiveErrorBoundary";
+import { PredictiveKpiStrip } from "../features/inventory-analytics/PredictiveKpiStrip";
+import { RecommendationExplorer } from "../features/inventory-analytics/RecommendationExplorer";
+import { StockoutRiskPanel } from "../features/inventory-analytics/StockoutRiskPanel";
+import { cohortParams, predictiveParams } from "../features/inventory-analytics/utils";
 import type {
-  AbcCell,
-  AbcProduct,
   AnalyticsFilters,
-  AnalyticsMonth,
-  AnalyticsOverview,
-  MovementReport,
+  PredictiveDataQuality,
+  PredictiveDemand,
+  PredictiveExplain,
+  PredictiveOverview,
+  PredictiveProjection,
+  PredictiveRecommendations,
+  PredictiveRisks,
   ProductDetail,
-  RankedProduct,
-  SlowItem,
-  SupplierScore,
 } from "../types/api";
 import {
   analyticsFetchKey,
   clearAnalyticsQuery,
+  predictiveFetchKey,
   readAnalyticsQuery,
   writeAnalyticsQuery,
   type AnalyticsQuery,
+  type AnalyticsTab,
+  type PredictiveHorizon,
+  type ProjectionMode,
 } from "../utils/analyticsQuery";
-import { formatNumber, formatPaise } from "../utils/format";
-
-type Bundle = {
-  overview: AnalyticsOverview;
-  months: AnalyticsMonth[];
-  turnover: AnalyticsMonth[];
-  turnoverDefinition?: string;
-  movements: MovementReport;
-  byValue: RankedProduct[];
-  byQuantity: RankedProduct[];
-  sales: AnalyticsMonth[];
-  categories: { category: string; inventory_value_paise: number; revenue_paise: number; value_share?: number | null; sku_count: number }[];
-  cells: AbcCell[];
-  abcProducts: AbcProduct[];
-  abcRule?: string;
-  xyzRule?: string;
-  slow: SlowItem[];
-  slowDefinition?: string;
-  suppliers: SupplierScore[];
-  supplierNote?: string;
-  catalogNote?: string;
-  filters: AnalyticsFilters;
-};
 
 export function InventoryAnalytics() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const query = useMemo(() => readAnalyticsQuery(params), [params]);
-  const [bundle, setBundle] = useState<Bundle | null>(null);
+  const tab = query.tab ?? "overview";
+  const [bundle, setBundle] = useState<HistoricalBundle | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
+  const [sectionError, setSectionError] = useState<string | null>(null);
+
+  const [predictiveLoading, setPredictiveLoading] = useState(false);
+  const [predictiveSectionError, setPredictiveSectionError] = useState<string | null>(null);
+  const [predOverview, setPredOverview] = useState<PredictiveOverview | null>(null);
+  const [predDemand, setPredDemand] = useState<PredictiveDemand | null>(null);
+  const [predProjection, setPredProjection] = useState<PredictiveProjection | null>(null);
+  const [predRisks, setPredRisks] = useState<PredictiveRisks | null>(null);
+  const [predRecommendations, setPredRecommendations] = useState<PredictiveRecommendations | null>(null);
+  const [predDataQuality, setPredDataQuality] = useState<PredictiveDataQuality | null>(null);
+  const [predExplain, setPredExplain] = useState<PredictiveExplain | null>(null);
+  const [explainLoading, setExplainLoading] = useState(false);
+  const [explainProductId, setExplainProductId] = useState<number | null>(null);
+
   const [drawerId, setDrawerId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ProductDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [sectionError, setSectionError] = useState<string | null>(null);
 
   const fetchKey = analyticsFetchKey(query);
+  const predKey = predictiveFetchKey(query);
+  const predictiveRequestSeq = useRef(0);
 
+  // Lightweight filter options — always available for the shared filter bar.
   useEffect(() => {
+    const ac = new AbortController();
+    api
+      .analyticsFilters(ac.signal)
+      .then((filters) => {
+        setBundle((prev) =>
+          prev
+            ? { ...prev, filters }
+            : {
+                overview: { ready: false },
+                months: [],
+                turnover: [],
+                movements: { ready: false },
+                byValue: [],
+                byQuantity: [],
+                sales: [],
+                categories: [],
+                cells: [],
+                abcProducts: [],
+                slow: [],
+                suppliers: [],
+                filters,
+              },
+        );
+      })
+      .catch(() => undefined);
+    return () => ac.abort();
+  }, []);
+
+  // Heavy historical analytics — only when Overview/Quality need them (avoids starving predictive APIs on 8GB hosts).
+  useEffect(() => {
+    if (tab !== "overview" && tab !== "quality") {
+      setLoading(false);
+      return;
+    }
     const ac = new AbortController();
     let active = true;
     setLoading(true);
-    const q = {
-      date_from: query.from,
-      date_to: query.to,
-      year: query.year,
-      month: query.month,
-      category: query.category,
-      supplier_id: query.supplier,
-      product_id: query.product,
-      segment: query.cell,
-    };
-    const base = { ...q, segment: undefined };
+    const q = cohortParams(query, { segment: undefined });
+    const histQ = { ...q, segment: query.cell };
     Promise.allSettled([
-      api.analyticsOverview(q, ac.signal),
-      api.analyticsTrend(q, ac.signal),
-      api.analyticsTurnover(q, ac.signal),
-      api.analyticsMovements(q, ac.signal),
-      api.analyticsTop(q, ac.signal),
-      api.analyticsSales(q, ac.signal),
-      api.analyticsCategories(q, ac.signal),
-      api.analyticsAbc({ ...base, page_size: 200 }, ac.signal),
-      api.analyticsSlow({ ...q, page_size: 50 }, ac.signal),
-      api.analyticsSuppliers(q, ac.signal),
+      api.analyticsOverview(histQ, ac.signal),
+      api.analyticsTrend(histQ, ac.signal),
+      api.analyticsTurnover(histQ, ac.signal),
+      api.analyticsMovements(histQ, ac.signal),
+      api.analyticsTop(histQ, ac.signal),
+      api.analyticsSales(histQ, ac.signal),
+      api.analyticsCategories(histQ, ac.signal),
+      api.analyticsAbc({ ...q, page_size: 200 }, ac.signal),
+      api.analyticsSlow({ ...histQ, page_size: 50 }, ac.signal),
+      api.analyticsSuppliers(histQ, ac.signal),
       api.analyticsFilters(ac.signal),
     ])
       .then((results) => {
@@ -129,7 +147,7 @@ export function InventoryAnalytics() {
         const slow = results[8].status === "fulfilled" ? results[8].value : null;
         const suppliers = results[9].status === "fulfilled" ? results[9].value : null;
         const filters = results[10].status === "fulfilled" ? results[10].value : null;
-        setBundle({
+        setBundle((prev) => ({
           overview,
           months: trend?.months ?? [],
           turnover: turnover?.months ?? [],
@@ -148,8 +166,8 @@ export function InventoryAnalytics() {
           suppliers: suppliers?.items ?? [],
           supplierNote: suppliers?.simulated_label,
           catalogNote: suppliers?.catalog_reliability_label,
-          filters: filters ?? { ready: false, categories: [], suppliers: [], products: [], years: [], months: [] },
-        });
+          filters: filters ?? prev?.filters ?? { ready: false, categories: [], suppliers: [], products: [], years: [], months: [] },
+        }));
         setSectionError(failed.length ? "Some analytics sections could not be refreshed. The sections that loaded are still usable." : null);
         setError(null);
         setOffline(false);
@@ -161,7 +179,99 @@ export function InventoryAnalytics() {
       active = false;
       ac.abort();
     };
-  }, [fetchKey, query]);
+    // fetchKey + tab: historical payload only when descriptive tabs are active.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchKey, tab]);
+
+  useEffect(() => {
+    if (tab === "overview") {
+      setPredictiveLoading(false);
+      return;
+    }
+    const ac = new AbortController();
+    const requestId = ++predictiveRequestSeq.current;
+    setPredictiveLoading(true);
+    const base = predictiveParams(query);
+    const cohort = cohortParams(query);
+
+    const isCurrent = () => requestId === predictiveRequestSeq.current;
+
+    const run = async () => {
+      if (tab === "quality") {
+        const dq = await Promise.allSettled([api.predictiveDataQuality(cohort, ac.signal)]);
+        if (!isCurrent()) return;
+        setPredDataQuality(dq[0].status === "fulfilled" ? dq[0].value : null);
+        setPredictiveSectionError(dq[0].status === "rejected" ? "Predictive data quality could not be refreshed. Historical overview data is unchanged." : null);
+        return;
+      }
+
+      if (tab === "predictive") {
+        const results = await Promise.allSettled([
+          api.predictiveOverview(base, ac.signal),
+          api.predictiveDemand(base, ac.signal),
+          api.predictiveProjection(base, ac.signal),
+          api.predictiveRisks(cohort, ac.signal),
+        ]);
+        if (!isCurrent()) return;
+        const failed = results.filter((r) => r.status === "rejected");
+        setPredOverview(results[0].status === "fulfilled" ? results[0].value : null);
+        setPredDemand(results[1].status === "fulfilled" ? results[1].value : null);
+        setPredProjection(results[2].status === "fulfilled" ? results[2].value : null);
+        setPredRisks(results[3].status === "fulfilled" ? results[3].value : null);
+        setPredictiveSectionError(failed.length ? "Some predictive sections could not be refreshed. Historical overview data is unchanged." : null);
+        return;
+      }
+
+      if (tab === "decisions") {
+        const results = await Promise.allSettled([
+          api.predictiveOverview(base, ac.signal),
+          api.predictiveRecommendations(cohort, ac.signal),
+        ]);
+        if (!isCurrent()) return;
+        const failed = results.filter((r) => r.status === "rejected");
+        setPredOverview(results[0].status === "fulfilled" ? results[0].value : null);
+        setPredRecommendations(results[1].status === "fulfilled" ? results[1].value : null);
+        setPredictiveSectionError(failed.length ? "Some predictive sections could not be refreshed. Historical overview data is unchanged." : null);
+      }
+    };
+
+    run()
+      .catch(() => {
+        if (isCurrent()) setPredictiveSectionError("Predictive workspace request failed. Historical overview data is unchanged.");
+      })
+      .finally(() => {
+        if (isCurrent()) setPredictiveLoading(false);
+      });
+
+    return () => {
+      ac.abort();
+    };
+    // predKey + tab capture predictive refetch inputs without query object identity churn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [predKey, tab]);
+
+  useEffect(() => {
+    const productId = explainProductId ?? (query.product ? Number(query.product) : null);
+    if (tab !== "decisions" || productId == null || Number.isNaN(productId)) {
+      if (tab !== "decisions") setPredExplain(null);
+      return;
+    }
+    const ac = new AbortController();
+    setExplainLoading(true);
+    api
+      .predictiveExplain(productId, ac.signal)
+      .then((body) => {
+        setPredExplain(body);
+        setExplainLoading(false);
+      })
+      .catch(() => {
+        if (!ac.signal.aborted) {
+          setPredExplain(null);
+          setExplainLoading(false);
+        }
+      });
+    return () => ac.abort();
+  }, [tab, explainProductId, query.product]);
 
   useEffect(() => {
     if (drawerId == null) {
@@ -187,367 +297,105 @@ export function InventoryAnalytics() {
     setParams(writeAnalyticsQuery(next));
   }
 
-  const ranked = query.rank === "quantity" ? bundle?.byQuantity ?? [] : bundle?.byValue ?? [];
-  const selectedMonth =
-    query.year && query.month ? `${query.year}-${String(query.month).padStart(2, "0")}` : "";
-  const cellProducts = query.cell
-    ? (bundle?.abcProducts ?? []).filter((row) => row.cell === query.cell)
-    : bundle?.abcProducts ?? [];
-
-  if (loading && !bundle) {
-    return (
-      <>
-        <PageHeader title="Inventory Analytics" subtitle="Loading historical inventory intelligence…" />
-        <div className="grid-kpi-6">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <SkeletonCard key={i} />
-          ))}
-        </div>
-      </>
-    );
+  function setTab(next: AnalyticsTab) {
+    update({ tab: next });
   }
-  if (error && !bundle) return <ErrorState message={error} onRetry={() => setParams(params)} offline={offline} />;
+
+  if (error && !bundle && tab === "overview") {
+    return <ErrorState message={error} onRetry={() => setParams(params)} offline={offline} />;
+  }
 
   const overview = bundle?.overview;
   const filters = bundle?.filters;
   const period =
-    overview?.period_start && overview.period_end
-      ? `${overview.period_start} to ${overview.period_end}`
-      : "No snapshot days in this filter";
+    tab === "overview" || tab === "quality"
+      ? overview?.period_start && overview?.period_end
+        ? `${overview.period_start} to ${overview.period_end}`
+        : "No snapshot days in this filter"
+      : predOverview?.forecast_as_of
+        ? `Forecast as-of ${predOverview.forecast_as_of}`
+        : "Predictive as-of pending";
+
+  const provenance = provenanceFromOverview(predOverview);
+  const showHistoricalSkeleton = tab === "overview" && loading && !bundle;
 
   return (
     <>
       <PageHeader
         title="Inventory Analytics"
-        subtitle="Historical inventory value, turnover, and movement. Reconstructed receipts are labeled synthetic. Live stock stays separate from those snapshots."
+        subtitle="Understand inventory performance, predict future exposure, and explore smarter replenishment decisions."
         actions={<span className="badge badge-muted">{period}</span>}
       />
+
+      <AnalyticsWorkspaceTabs value={tab} onChange={setTab} />
 
       <FilterBar query={query} filters={filters} onChange={update} onClear={() => setParams(writeAnalyticsQuery(clearAnalyticsQuery()))} />
       {loading && bundle ? <p className="note analytics-busy">Refreshing the selected view…</p> : null}
       {sectionError ? <p className="note section-error" role="status">{sectionError}</p> : null}
+      {predictiveLoading && tab !== "overview" ? <p className="note analytics-busy">Refreshing predictive workspace…</p> : null}
+      {predictiveSectionError ? <p className="note section-error" role="status">{predictiveSectionError}</p> : null}
 
-      {!overview?.ready ? (
-        <EmptyState
-          title="Analytics history is not built"
-          message={overview?.note || "Run python -m app.cli build-analytics --seed 42"}
-        />
-      ) : (
-        <>
-          <div className="grid-kpi-6">
-            <KpiCard
-              label="Inventory value"
-              icon={<IndianRupee size={16} />}
-              value={formatPaise(overview.inventory_value_paise)}
-              sublabel={`Historical as-of-period, stock on ${overview.period_end ?? "the period end"}. Current operational stock ${formatPaise(overview.live_inventory_value_paise)}`}
-            />
-            <KpiCard
-              label="Stock available"
-              icon={<Boxes size={16} />}
-              value={formatNumber(overview.stock_units)}
-              sublabel={`Historical stock on ${overview.period_end ?? "the period end"}. Current stock ${formatNumber(overview.live_stock_units)}`}
-            />
-            <article className="card kpi-card">
-              <div className="kpi-top">
-                <div className="kpi-label">Inventory turnover</div>
-                <span className="kpi-icon"><Gauge size={16} /></span>
-              </div>
-              <div className="gauge-row">
-                <TurnoverSpark months={bundle?.turnover ?? []} />
-                <div>
-                  <div className="kpi-value tabular">{overview.turnover == null ? "N/A" : overview.turnover.toFixed(2)}</div>
-                  <p className="note">Historical as-of-period. The number is the full ratio. The line is that period's monthly turns, scaled to the data.</p>
-                </div>
-              </div>
-            </article>
-            <KpiCard
-              label="Inventory to sales"
-              icon={<Scale size={16} />}
-              value={overview.inventory_to_sales == null ? "N/A" : overview.inventory_to_sales.toFixed(2)}
-              sublabel="Historical as-of-period. Period-end value / fulfilled revenue"
-            />
-            <KpiCard
-              label="Days inventory outstanding"
-              icon={<Timer size={16} />}
-              value={overview.days_inventory_outstanding == null ? "N/A" : overview.days_inventory_outstanding.toFixed(1)}
-              sublabel="Historical as-of-period. Accounting DIO, not forecast cover"
-            />
-            <KpiCard
-              label="Excess inventory value"
-              icon={<Warehouse size={16} />}
-              tone="warn"
-              value={overview.excess_inventory_value_paise == null ? "N/A" : formatPaise(overview.excess_inventory_value_paise)}
-              sublabel="Current operational state. This forecast overlay was not known in the selected month."
-            />
-          </div>
+      {showHistoricalSkeleton ? (
+        <div className="grid-kpi-6">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
+      ) : null}
 
-          <QualityPanel overview={overview} />
+      {tab === "overview" && bundle && overview ? (
+        <HistoricalAnalyticsPanel bundle={bundle} query={query} update={update} onProductSelect={setDrawerId} />
+      ) : null}
 
+      {tab === "predictive" ? (
+        <PredictiveErrorBoundary label="Predictive Intelligence">
+          <PredictionProvenance {...provenance} />
+          <PredictiveKpiStrip overview={predOverview} />
           <div className="analytics-split">
-            <ChartCard
-              title="Inventory value over time"
-              subtitle="Month-end purchasing-cost value from reconstructed snapshots."
-              ariaLabel="Monthly inventory value"
-            >
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={bundle?.months ?? []} onClick={(state) => pickMonth(state, update)}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} />
-                  <YAxis tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} width={56} tickFormatter={(v) => compactPaise(Number(v))} />
-                  <Tooltip content={<MonthTip />} />
-                  <Bar dataKey="inventory_value_paise" name="Inventory value" radius={[6, 6, 0, 0]}>
-                    {(bundle?.months ?? []).map((row) => (
-                      <Cell key={row.month} fill={row.month === selectedMonth ? "var(--color-forecast)" : "var(--color-primary)"} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-              <div className="chip-row" aria-label="Select a month">
-                {(bundle?.months ?? []).map((row) => (
-                  <button
-                    key={row.month}
-                    type="button"
-                    className="chip"
-                    aria-pressed={row.month === selectedMonth}
-                    onClick={() => selectMonth(row.month, update)}
-                  >
-                    {row.month}
-                  </button>
-                ))}
-              </div>
-            </ChartCard>
-            <ChartCard title="Monthly turnover" subtitle={bundle?.turnoverDefinition || "Month COGS / average inventory. Not annualized."}>
-              <ResponsiveContainer width="100%" height={280}>
-                <ComposedChart data={bundle?.turnover ?? []}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} />
-                  <YAxis tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} width={40} />
-                  <Tooltip content={<TurnoverTip />} />
-                  <Line dataKey="turnover" name="Turns" stroke="var(--color-forecast)" strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </ChartCard>
-          </div>
-
-          <div className="analytics-split">
-            <ChartCard
-              title="Top 10 items"
-              subtitle="Period-end inventory. Select a product to open its intelligence drawer."
-              actions={
-                <SegmentedControl<"value" | "quantity">
-                  label="Ranking measure"
-                  value={query.rank}
-                  onChange={(rank) => update({ rank })}
-                  options={[
-                    { id: "value", label: "Value" },
-                    { id: "quantity", label: "Quantity" },
-                  ]}
-                />
-              }
-            >
-              <ResponsiveContainer width="100%" height={320}>
-                <BarChart data={ranked} layout="vertical" margin={{ left: 8, right: 12 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                  <XAxis type="number" tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} tickFormatter={(v) => (query.rank === "value" ? compactPaise(Number(v)) : formatNumber(Number(v)))} />
-                  <YAxis type="category" dataKey="sku" width={84} tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} />
-                  <Tooltip content={<RankTip mode={query.rank} />} />
-                  <Bar
-                    dataKey={query.rank === "value" ? "inventory_value_paise" : "stock_units"}
-                    fill="var(--color-primary)"
-                    radius={[0, 6, 6, 0]}
-                    onClick={(row: RankedProduct) => setDrawerId(row.product_id)}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-              <ol className="rank-list">
-                {ranked.map((row) => (
-                  <li key={row.product_id}>
-                    <button type="button" onClick={() => setDrawerId(row.product_id)}>
-                      <span className="rank-index">{row.rank}</span>
-                      <span>
-                        <strong>{row.name}</strong>
-                        <span className="note">{row.sku} · {row.category}</span>
-                      </span>
-                      <span className="tabular">
-                        {query.rank === "value" ? formatPaise(row.inventory_value_paise) : `${formatNumber(row.stock_units)} units`}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            </ChartCard>
-            <ChartCard
-              title="Inventory movements"
-              subtitle={bundle?.movements.formula || "Unit waterfall for the selected window."}
-            >
-              {bundle?.movements.opening_units == null ? (
-                <EmptyState title="No movements" message="The selected window has no snapshots." />
-              ) : (
-                <>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={waterfallSteps(bundle.movements)}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--color-text-muted)" }} interval={0} />
-                      <YAxis tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} width={48} />
-                      <Tooltip content={<WaterfallTip />} />
-                      <Bar dataKey="base" stackId="flow" fill="transparent" />
-                      <Bar dataKey="span" stackId="flow" radius={[4, 4, 0, 0]}>
-                        {waterfallSteps(bundle.movements).map((step) => (
-                          <Cell
-                            key={step.name}
-                            fill={step.kind === "down" ? "var(--color-risk)" : step.kind === "up" ? "var(--color-forecast)" : "var(--color-primary)"}
-                          />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                  <p className="note">
-                    Units conserved: {bundle.movements.conserved_units ? "yes" : "no"}. Value conserved:{" "}
-                    {bundle.movements.conserved_value ? "yes" : "no"}. Closing value {formatPaise(bundle.movements.closing_value_paise)}.
-                  </p>
-                </>
-              )}
-            </ChartCard>
-          </div>
-
-          <div className="analytics-split">
-            <ChartCard title="Inventory and sales" subtitle="Bars use rupees. The line is the inventory-to-sales ratio.">
-              <ResponsiveContainer width="100%" height={280}>
-                <ComposedChart data={bundle?.sales ?? []}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} />
-                  <YAxis yAxisId="money" tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} width={56} tickFormatter={(v) => compactPaise(Number(v))} />
-                  <YAxis yAxisId="ratio" orientation="right" tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} width={36} />
-                  <Tooltip content={<SalesTip />} />
-                  <Legend />
-                  <Bar yAxisId="money" dataKey="inventory_value_paise" name="Inventory value" fill="var(--color-primary)" radius={[4, 4, 0, 0]} />
-                  <Bar yAxisId="money" dataKey="revenue_paise" name="Fulfilled revenue" fill="var(--color-forecast)" radius={[4, 4, 0, 0]} />
-                  <Line yAxisId="ratio" dataKey="inventory_to_sales" name="Ratio" stroke="var(--color-warning)" strokeWidth={2} dot={false} connectNulls={false} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </ChartCard>
-            <ChartCard title="Category contribution" subtitle="Period-end inventory value. Select a category to filter the page.">
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart
-                  data={bundle?.categories ?? []}
-                  layout="vertical"
-                  margin={{ left: 8, right: 8 }}
-                  onClick={(state) => {
-                    const category = state?.activePayload?.[0]?.payload?.category as string | undefined;
-                    if (category) update({ category });
-                  }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                  <XAxis type="number" tickFormatter={(v) => compactPaise(Number(v))} tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} />
-                  <YAxis type="category" dataKey="category" width={110} tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} />
-                  <Tooltip formatter={(value) => formatPaise(typeof value === "number" ? value : null)} />
-                  <Bar dataKey="inventory_value_paise" name="Inventory value" radius={[0, 6, 6, 0]}>
-                    {(bundle?.categories ?? []).map((row) => (
-                      <Cell key={row.category} fill={row.category === query.category ? "var(--color-forecast)" : "var(--color-primary)"} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
-          </div>
-
-          <section className="card" style={{ marginBottom: 16 }}>
-            <h2 className="card-title">Insight summary</h2>
-            <p className="card-sub">Deterministic statements from the filtered calculations.</p>
-            <ul className="insight-list">
-              {(overview.insights ?? []).map((insight) => (
-                <li key={insight.id}>{insight.text}</li>
-              ))}
-            </ul>
-            {overview.reconciliation_note ? <p className="note">{overview.reconciliation_note}</p> : null}
-            {overview.cost_model ? <p className="note">{overview.cost_model}</p> : null}
-          </section>
-
-          <section className="card" style={{ marginBottom: 16 }}>
-            <h2 className="card-title">ABC–XYZ segmentation</h2>
-            <p className="card-sub">{bundle?.abcRule}</p>
-            <p className="card-sub">{bundle?.xyzRule}</p>
-            <div className="abc-grid" role="grid" aria-label="ABC XYZ matrix">
-              <span />
-              {["X", "Y", "Z"].map((xyz) => (
-                <strong key={xyz} className="abc-head">{xyz}</strong>
-              ))}
-              {["A", "B", "C"].map((abc) => (
-                <AbcRow
-                  key={abc}
-                  abc={abc}
-                  cells={bundle?.cells ?? []}
-                  selected={query.cell}
-                  onSelect={(cell) => update({ cell: query.cell === cell ? undefined : cell })}
-                />
-              ))}
-            </div>
-            {query.cell ? (
-              <div className="chip-row">
-                <span className="chip">{query.cell}: {(bundle?.cells ?? []).find((cell) => cell.cell === query.cell)?.interpretation}</span>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => update({ cell: undefined })}>Clear cell</button>
-              </div>
-            ) : null}
-            <DataTable
-              rows={cellProducts.slice(0, 12)}
-              onSelect={(row) => setDrawerId(row.product_id)}
-              columns={[
-                { key: "sku", header: "Product", render: (row) => `${row.name} · ${row.sku}` },
-                { key: "cell", header: "Cell", render: (row) => row.cell },
-                { key: "value", header: "Inventory value", align: "right", render: (row) => formatPaise(row.inventory_value_paise) },
-                { key: "revenue", header: "Fulfilled revenue", align: "right", render: (row) => formatPaise(row.revenue_paise) },
-              ]}
-            />
-          </section>
-
-          <section className="card" style={{ marginBottom: 16 }}>
-            <h2 className="card-title">Slow-moving and excess stock</h2>
-            <p className="card-sub">{bundle?.slowDefinition}</p>
-            {bundle?.slow.length ? (
-              <DataTable
-                rows={bundle.slow}
-                onSelect={(row) => setDrawerId(row.product_id)}
-                columns={[
-                  { key: "product", header: "Product", render: (row) => `${row.name} · ${row.sku}` },
-                  { key: "historical", header: "Historical stock", align: "right", render: (row) => formatNumber(row.historical_stock_units ?? row.stock_units) },
-                  { key: "current", header: "Current stock", align: "right", render: (row) => formatNumber(row.current_stock_units ?? row.stock_units) },
-                  { key: "sales", header: "Sold 30 / 90", align: "right", render: (row) => `${formatNumber(row.sold_units_30d)} / ${formatNumber(row.sold_units_90d)}` },
-                  { key: "cover", header: "Current forecast cover", align: "right", render: (row) => (row.forecast_days_of_supply == null ? "N/A" : `${row.forecast_days_of_supply.toFixed(0)} d`) },
-                  { key: "action", header: "Suggested action", render: (row) => row.suggested_action },
-                ]}
+            <PredictiveErrorBoundary label="Demand outlook">
+              <DemandOutlookChart
+                data={predDemand}
+                forecastAsOf={provenance.forecastAsOf}
+                horizon={(query.horizon ?? "28") as PredictiveHorizon}
+                onHorizonChange={(horizon) => update({ horizon })}
               />
-            ) : (
-              <EmptyState title="No slow-moving SKUs in this filter" message="The screen found no stock that met the documented rules." />
-            )}
-          </section>
+            </PredictiveErrorBoundary>
+            <PredictiveErrorBoundary label="Inventory projection">
+              <InventoryProjectionChart
+                data={predProjection}
+                forecastAsOf={provenance.forecastAsOf}
+                horizon={(query.horizon ?? "28") as PredictiveHorizon}
+                mode={(query.mode ?? "no_reorder") as ProjectionMode}
+                onHorizonChange={(horizon) => update({ horizon })}
+                onModeChange={(mode) => update({ mode })}
+              />
+            </PredictiveErrorBoundary>
+          </div>
+          <PredictiveErrorBoundary label="Stockout risk">
+            <StockoutRiskPanel data={predRisks} onSelectProduct={setDrawerId} />
+          </PredictiveErrorBoundary>
+          <PredictiveErrorBoundary label="Excess inventory">
+            <ExcessInventoryPanel data={predRisks} onSelectProduct={setDrawerId} />
+          </PredictiveErrorBoundary>
+        </PredictiveErrorBoundary>
+      ) : null}
 
-          <section className="card" style={{ marginBottom: 16 }}>
-            <h2 className="card-title">Supplier intelligence</h2>
-            <p className="card-sub">{bundle?.catalogNote}</p>
-            <p className="card-sub">{bundle?.supplierNote}</p>
-            <div className="supplier-grid">
-              {(bundle?.suppliers ?? []).map((supplier) => (
-                <button
-                  key={supplier.supplier_id}
-                  type="button"
-                  className={`card supplier-card${query.supplier === String(supplier.supplier_id) ? " selected" : ""}`}
-                  onClick={() => update({ supplier: String(supplier.supplier_id) })}
-                >
-                  <strong>{supplier.name}</strong>
-                  <span>{supplier.product_count} products · {formatPaise(supplier.stock_value_paise)}</span>
-                  <span>Modeled lead time {supplier.modeled_lead_days} days</span>
-                  <span>
-                    Simulated on time{" "}
-                    {supplier.simulated_on_time_rate == null ? "N/A" : `${(supplier.simulated_on_time_rate * 100).toFixed(0)}%`}
-                    {" "}({supplier.simulated_receipts} reconstructed receipts)
-                  </span>
-                  <span>Open reorder qty {formatNumber(supplier.open_reorder_qty)}</span>
-                </button>
-              ))}
-            </div>
-          </section>
+      {tab === "decisions" ? (
+        <>
+          <PredictionProvenance {...provenance} />
+          <RecommendationExplorer
+            data={predRecommendations}
+            onSelectProduct={setDrawerId}
+            onExplain={(id) => setExplainProductId(id)}
+          />
+          <MLInsightPanel data={predRecommendations} />
+          <DecisionComparisonChart explain={predExplain} loading={explainLoading} />
         </>
-      )}
+      ) : null}
+
+      {tab === "quality" ? (
+        <AnalyticsDataQualityPanel predictive={predDataQuality} historicalOverview={overview ?? null} />
+      ) : null}
 
       {(drawerId != null || detailLoading) && (
         <ProductDetailDrawer
@@ -638,200 +486,4 @@ function FilterBar({
       </div>
     </section>
   );
-}
-
-function AbcRow({
-  abc,
-  cells,
-  selected,
-  onSelect,
-}: {
-  abc: string;
-  cells: AbcCell[];
-  selected?: string;
-  onSelect: (cell: string) => void;
-}) {
-  return (
-    <>
-      <strong className="abc-head">{abc}</strong>
-      {["X", "Y", "Z"].map((xyz) => {
-        const cell = cells.find((row) => row.cell === `${abc}${xyz}`);
-        const key = `${abc}${xyz}`;
-        return (
-          <button
-            key={key}
-            type="button"
-            className={`abc-cell${selected === key ? " selected" : ""}`}
-            aria-pressed={selected === key}
-            onClick={() => onSelect(key)}
-          >
-            <strong>{key}</strong>
-            <span>{cell?.sku_count ?? 0} SKUs</span>
-            <span>{formatPaise(cell?.inventory_value_paise)}</span>
-            <span>{cell?.value_share == null ? "N/A" : `${(cell.value_share * 100).toFixed(1)}%`}</span>
-          </button>
-        );
-      })}
-    </>
-  );
-}
-
-function TurnoverSpark({ months }: { months: AnalyticsMonth[] }) {
-  const values = months.map((month) => month.turnover).filter((value): value is number => value != null && Number.isFinite(value));
-  if (values.length < 2) return <span className="note">No monthly trend in this filter.</span>;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  const width = 120;
-  const height = 36;
-  const points = values
-    .map((value, index) => {
-      const x = (index / (values.length - 1)) * width;
-      const y = height - ((value - min) / span) * (height - 4) - 2;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-  return (
-    <svg className="spark" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Monthly turnover from ${values[0].toFixed(2)} to ${values[values.length - 1].toFixed(2)}`}>
-      <polyline fill="none" stroke="var(--color-primary)" strokeWidth="2" points={points} />
-    </svg>
-  );
-}
-
-function QualityPanel({ overview }: { overview: AnalyticsOverview }) {
-  const recon = overview.reconciliation;
-  const fingerprint = (overview.source_fingerprint || "").slice(0, 12);
-  return (
-    <section className="card quality-panel" aria-label="Reconstruction quality">
-      <div className="card-head">
-        <div>
-          <h2 className="card-title">Reconstruction quality</h2>
-          <p className="card-sub">Synthetic reconstructed history. Terminal reconciliation is separate from simulated replenishment.</p>
-        </div>
-        <span className="badge badge-muted">Synthetic data</span>
-      </div>
-      <div className="quality-grid">
-        <div><span className="note">Run</span><strong>{overview.run_id ?? "N/A"}</strong></div>
-        <div><span className="note">Freshness</span><strong>{overview.freshness ?? "N/A"}</strong></div>
-        <div><span className="note">Fingerprint</span><strong className="tabular">{fingerprint || "N/A"}</strong></div>
-        <div><span className="note">Algorithm</span><strong>{overview.algorithm_version ?? "v1"}</strong></div>
-        <div><span className="note">Reconciled up</span><strong>{recon ? `${formatNumber(recon.products_up)} SKUs · ${formatPaise(recon.up_value_paise)}` : "N/A"}</strong></div>
-        <div><span className="note">Reconciled down</span><strong>{recon ? `${formatNumber(recon.products_down)} SKUs · ${formatPaise(recon.down_value_paise)}` : "N/A"}</strong></div>
-        <div><span className="note">No adjustment</span><strong>{recon ? formatNumber(recon.products_matched) : "N/A"}</strong></div>
-        <div><span className="note">Absolute impact</span><strong>{recon ? formatPaise(recon.absolute_value_paise) : "N/A"}</strong></div>
-      </div>
-      <p className="note">{recon?.explanation || overview.reconciliation_note}</p>
-      {overview.anchor_note ? <p className="note">{overview.anchor_note}</p> : null}
-    </section>
-  );
-}
-
-function selectMonth(month: string, update: (partial: Partial<AnalyticsQuery>) => void) {
-  const [year, mon] = month.split("-");
-  update({ year, month: String(Number(mon)), from: undefined, to: undefined });
-}
-
-function pickMonth(state: { activeLabel?: string | number } | null, update: (partial: Partial<AnalyticsQuery>) => void) {
-  if (state?.activeLabel) selectMonth(String(state.activeLabel), update);
-}
-
-function MonthTip({ active, payload }: { active?: boolean; payload?: Array<{ payload: AnalyticsMonth }> }) {
-  if (!active || !payload?.length) return null;
-  const row = payload[0].payload;
-  return (
-    <div className="chart-tip">
-      <strong>{row.month}</strong>
-      <div>Inventory value {formatPaise(row.inventory_value_paise)}</div>
-      <div>Previous month {row.previous_inventory_value_paise == null ? "N/A" : formatPaise(row.previous_inventory_value_paise)}</div>
-      <div>Change {row.absolute_change_paise == null ? "N/A" : formatPaise(row.absolute_change_paise)}</div>
-      <div>Percent {row.percent_change == null ? "N/A" : `${row.percent_change.toFixed(1)}%`}</div>
-      <div>Fulfilled revenue {formatPaise(row.revenue_paise)}</div>
-      <div>Ratio {row.inventory_to_sales == null ? "N/A" : row.inventory_to_sales.toFixed(2)}</div>
-    </div>
-  );
-}
-
-function TurnoverTip({ active, payload }: { active?: boolean; payload?: Array<{ payload: AnalyticsMonth }> }) {
-  if (!active || !payload?.length) return null;
-  const row = payload[0].payload;
-  return (
-    <div className="chart-tip">
-      <strong>{row.month}</strong>
-      <div>Turns {row.turnover == null ? "N/A" : row.turnover.toFixed(2)}</div>
-      <div>COGS {formatPaise(row.cogs_paise)}</div>
-      <div>Average inventory {formatPaise(row.average_inventory_value_paise)}</div>
-    </div>
-  );
-}
-
-function RankTip({ active, payload, mode }: { active?: boolean; payload?: Array<{ payload: RankedProduct }>; mode: "value" | "quantity" }) {
-  if (!active || !payload?.length) return null;
-  const row = payload[0].payload;
-  return (
-    <div className="chart-tip">
-      <strong>{row.name}</strong>
-      <div>{row.sku}</div>
-      <div>{mode === "value" ? formatPaise(row.inventory_value_paise) : `${formatNumber(row.stock_units)} units`}</div>
-    </div>
-  );
-}
-
-function SalesTip({ active, payload }: { active?: boolean; payload?: Array<{ payload: AnalyticsMonth }> }) {
-  if (!active || !payload?.length) return null;
-  const row = payload[0].payload;
-  return (
-    <div className="chart-tip">
-      <strong>{row.month}</strong>
-      <div>Inventory value {formatPaise(row.inventory_value_paise)}</div>
-      <div>Fulfilled revenue {formatPaise(row.revenue_paise)}</div>
-      <div>Ratio {row.inventory_to_sales == null ? "N/A" : row.inventory_to_sales.toFixed(2)}</div>
-    </div>
-  );
-}
-
-type FlowStep = { name: string; base: number; span: number; amount: number; kind: "total" | "up" | "down" };
-
-function waterfallSteps(report: MovementReport): FlowStep[] {
-  let cursor = 0;
-  const rows: FlowStep[] = [];
-  function total(name: string, value: number) {
-    rows.push({ name, base: 0, span: Math.max(value, 0), amount: value, kind: "total" });
-    cursor = value;
-  }
-  function delta(name: string, amount: number) {
-    const next = cursor + amount;
-    rows.push({ name, base: Math.min(cursor, next), span: Math.abs(amount), amount, kind: amount >= 0 ? "up" : "down" });
-    cursor = next;
-  }
-  const split = report.reconciliation_receipt_units != null || report.reconciliation_writeoff_units != null;
-  const reconIn = report.reconciliation_receipt_units ?? 0;
-  const reconOut = report.reconciliation_writeoff_units ?? 0;
-  total("Opening", report.opening_units ?? 0);
-  delta(split ? "Replenishment" : "Receipts", (report.routine_receipts_units ?? report.receipts_units ?? 0));
-  if (split) delta("Reconcile in", reconIn);
-  delta("Returns", report.returns_units ?? 0);
-  delta("Adjustments", report.adjustments_units ?? 0);
-  delta("Sales", -(report.fulfilled_sales_units ?? 0));
-  delta(split ? "Write-offs" : "Write-offs", -((report.routine_writeoff_units ?? report.writeoff_units ?? 0)));
-  if (split) delta("Reconcile out", -reconOut);
-  total("Closing", report.closing_units ?? 0);
-  return rows;
-}
-
-function WaterfallTip({ active, payload }: { active?: boolean; payload?: Array<{ payload: FlowStep }> }) {
-  if (!active || !payload?.length) return null;
-  const row = payload[0].payload;
-  return (
-    <div className="chart-tip">
-      <strong>{row.name}</strong>
-      <div>{formatNumber(row.amount)} units</div>
-    </div>
-  );
-}
-
-function compactPaise(paise: number): string {
-  const rupees = paise / 100;
-  if (Math.abs(rupees) >= 100000) return `₹${(rupees / 100000).toFixed(1)}L`;
-  if (Math.abs(rupees) >= 1000) return `₹${(rupees / 1000).toFixed(1)}k`;
-  return `₹${Math.round(rupees)}`;
 }

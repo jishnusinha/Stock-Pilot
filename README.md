@@ -1,7 +1,7 @@
 # StockPilot
 
 Local-first **inventory intelligence** demo for one synthetic retailer.  
-**No LLM.** Ten compact scikit-learn agents + a deterministic reorder optimizer, plus a reconstructed inventory-history analytics layer (StockPilot 3.0).
+**No LLM.** Ten compact scikit-learn agents + a deterministic reorder optimizer, reconstructed inventory-history analytics (3.0), and **ML-powered predictive Inventory Analytics** (StockPilot 3.2).
 
 ```
 React (Vite)  →  FastAPI  →  SQLite + joblib models
@@ -82,7 +82,7 @@ npm run dev
 | Path | Screen |
 |---|---|
 | `/` | Command Center |
-| `/analytics` | Inventory Analytics |
+| `/analytics` | Inventory Analytics (Overview · Predictive Intelligence · Decision Insights · Data Quality) |
 | `/inventory` | Inventory Explorer |
 | `/simulator` | What-If Simulator |
 | `/agents` | Agent Intelligence |
@@ -94,6 +94,23 @@ Sidebar items like Products / Forecast / Reports redirect to the relevant live p
 ## Ten agents
 
 See [docs/ml-agents.md](docs/ml-agents.md). Orchestration DAG: calendar/price/intermittence/anomaly/similarity → demand (+interval) → supplier ETA → stockout/excess risk → **optimizer**.
+
+## Predictive analytics (3.2)
+
+Inventory Analytics connects descriptive history to persisted ML outputs (no retrain on page load):
+
+- Demand outlook + 7/14/28-day horizons from `forecasts` (Demand Interval Agent)
+- Inventory value projection (no-reorder vs recommended) via stock-flow simulation
+- Stockout / excess panels (probabilities never summed; excess **proxy** ≠ Excess Risk Agent)
+- Optimizer recommendations + deterministic explanations + simulator/agent-trace links
+
+Docs: [docs/stockpilot-v32-predictive-analytics.md](docs/stockpilot-v32-predictive-analytics.md) · [docs/ml-analytics-integration-design.md](docs/ml-analytics-integration-design.md) · [docs/stockpilot-v32-verification.md](docs/stockpilot-v32-verification.md)
+
+```powershell
+# example predictive calls
+Invoke-RestMethod "http://127.0.0.1:8000/api/analytics/predictive/overview?horizon_days=28"
+Invoke-RestMethod "http://127.0.0.1:8000/api/analytics/predictive/inventory-projection?mode=recommended&horizon_days=14"
+```
 
 ## Tests
 

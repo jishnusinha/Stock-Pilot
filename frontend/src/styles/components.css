@@ -1045,6 +1045,53 @@ dialog.confirm-dialog::backdrop {
   margin: -8px 0 12px;
 }
 
+.analytics-workspace-tabs {
+  margin: 0 0 16px;
+}
+
+.predictive-kpi-strip {
+  margin-bottom: 16px;
+}
+
+.prediction-provenance {
+  margin-bottom: 16px;
+}
+
+.provenance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.provenance-grid strong {
+  display: block;
+  margin-top: 2px;
+}
+
+.freshness-badge.badge-ok {
+  background: var(--color-primary-subtle, var(--color-bg-subtle));
+  color: var(--color-primary);
+}
+
+.freshness-badge.badge-warn {
+  background: var(--color-warning-bg, var(--color-bg-subtle));
+  color: var(--color-warning);
+}
+
+.risk-panel .analytics-split,
+.excess-panel {
+  margin-bottom: 0;
+}
+
+.ml-insight-panel {
+  margin-bottom: 16px;
+}
+
+.predictive-quality {
+  margin-bottom: 16px;
+}
+
 .chart-tip {
   max-width: min(280px, calc(100vw - 32px));
 }

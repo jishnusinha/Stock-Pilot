@@ -30,6 +30,13 @@ import type {
   SimulateRequest,
   SimulateResponse,
   Supplier,
+  PredictiveOverview,
+  PredictiveDemand,
+  PredictiveProjection,
+  PredictiveRisks,
+  PredictiveRecommendations,
+  PredictiveExplain,
+  PredictiveDataQuality,
 } from "../types/api";
 
 const BASE =
@@ -341,6 +348,28 @@ export const api = {
   },
   analyticsFilters(signal?: AbortSignal) {
     return fetchJson<AnalyticsFilters>("/api/analytics/filters", { signal });
+  },
+
+  predictiveOverview(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<PredictiveOverview>(withQuery("/api/analytics/predictive/overview", params), { signal });
+  },
+  predictiveDemand(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<PredictiveDemand>(withQuery("/api/analytics/predictive/demand", params), { signal });
+  },
+  predictiveProjection(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<PredictiveProjection>(withQuery("/api/analytics/predictive/inventory-projection", params), { signal });
+  },
+  predictiveRisks(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<PredictiveRisks>(withQuery("/api/analytics/predictive/risks", params), { signal });
+  },
+  predictiveRecommendations(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<PredictiveRecommendations>(withQuery("/api/analytics/predictive/recommendations", params), { signal });
+  },
+  predictiveExplain(productId: number, signal?: AbortSignal) {
+    return fetchJson<PredictiveExplain>(`/api/analytics/predictive/explain/${productId}`, { signal });
+  },
+  predictiveDataQuality(params: AnalyticsParams = {}, signal?: AbortSignal) {
+    return fetchJson<PredictiveDataQuality>(withQuery("/api/analytics/predictive/data-quality", params), { signal });
   },
   reorderCalendar(signal?: AbortSignal) {
     return fetchJson<{ items: CalendarItem[]; dated_count: number; undated_count: number; note: string }>(

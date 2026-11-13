@@ -18,7 +18,7 @@ PROJECT_ROOT = BACKEND_ROOT.parent
 
 class Settings:
     app_name: str = "StockPilot"
-    app_version: str = "3.1.0"
+    app_version: str = "3.2.0"
     seed: int = int(os.environ.get("STOCKPILOT_SEED", "42"))
     threads: int = _THREADS
     demo_date: str = os.environ.get("STOCKPILOT_DEMO_DATE", "2026-11-01")

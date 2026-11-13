@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.api import schemas as S
 from app.api.deps import get_db
 from app.services import inventory_analytics as ia
+from app.services import predictive_inventory_analytics as pia
 
 router = APIRouter()
 
@@ -142,3 +143,91 @@ def analytics_filters(conn: sqlite3.Connection = Depends(get_db)) -> Any:
 @router.get("/reorders/calendar", response_model=S.ReorderCalendarResponse)
 def reorders_calendar(conn: sqlite3.Connection = Depends(get_db)) -> Any:
     return ia.reorder_calendar(conn)
+
+
+# ---- StockPilot 3.2 predictive analytics (persisted ML outputs; no training) ----
+
+
+@router.get("/analytics/predictive/overview", response_model=S.AnalyticsResponse)
+def predictive_overview(
+    filters: ia.Filters = Depends(get_filters),
+    horizon_days: int = Query(28, ge=7, le=28),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> Any:
+    if horizon_days not in (7, 14, 28):
+        raise HTTPException(400, "horizon_days must be 7, 14, or 28")
+    return _call(pia.overview, conn, filters, horizon_days=horizon_days)
+
+
+@router.get("/analytics/predictive/demand", response_model=S.AnalyticsResponse)
+def predictive_demand(
+    filters: ia.Filters = Depends(get_filters),
+    horizon_days: int = Query(28, ge=7, le=28),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> Any:
+    if horizon_days not in (7, 14, 28):
+        raise HTTPException(400, "horizon_days must be 7, 14, or 28")
+    return _call(pia.demand_outlook, conn, filters, horizon_days=horizon_days)
+
+
+@router.get("/analytics/predictive/inventory-projection", response_model=S.AnalyticsResponse)
+def predictive_inventory_projection(
+    filters: ia.Filters = Depends(get_filters),
+    horizon_days: int = Query(28, ge=7, le=28),
+    mode: str = Query("no_reorder"),
+    scenario_order_qty: int | None = Query(None, ge=0),
+    scenario_lead_days: int | None = Query(None, ge=0, le=28),
+    scenario_product_id: int | None = Query(None),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> Any:
+    if horizon_days not in (7, 14, 28):
+        raise HTTPException(400, "horizon_days must be 7, 14, or 28")
+    if mode not in ("no_reorder", "recommended", "scenario"):
+        raise HTTPException(400, "mode must be no_reorder, recommended, or scenario")
+    return _call(
+        pia.inventory_projection,
+        conn,
+        filters,
+        horizon_days=horizon_days,
+        mode=mode,
+        scenario_order_qty=scenario_order_qty,
+        scenario_lead_days=scenario_lead_days,
+        scenario_product_id=scenario_product_id,
+    )
+
+
+@router.get("/analytics/predictive/risks", response_model=S.AnalyticsResponse)
+def predictive_risks(
+    filters: ia.Filters = Depends(get_filters),
+    limit: int = Query(25, ge=1, le=100),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> Any:
+    return _call(pia.risks, conn, filters, limit=limit)
+
+
+@router.get("/analytics/predictive/recommendations", response_model=S.AnalyticsResponse)
+def predictive_recommendations(
+    filters: ia.Filters = Depends(get_filters),
+    limit: int = Query(40, ge=1, le=100),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> Any:
+    return _call(pia.recommendations, conn, filters, limit=limit)
+
+
+@router.get("/analytics/predictive/explain/{product_id}", response_model=S.AnalyticsResponse)
+def predictive_explain(
+    product_id: int,
+    conn: sqlite3.Connection = Depends(get_db),
+) -> Any:
+    try:
+        return pia.explain_product(conn, product_id)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.get("/analytics/predictive/data-quality", response_model=S.AnalyticsResponse)
+def predictive_data_quality(
+    filters: ia.Filters = Depends(get_filters),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> Any:
+    return _call(pia.data_quality, conn, filters)

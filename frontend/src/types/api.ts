@@ -395,6 +395,260 @@ export interface AnalyticsParams {
   segment?: string;
   page?: number;
   page_size?: number;
+  horizon_days?: number | string;
+  mode?: "no_reorder" | "recommended" | "scenario" | string;
+  scenario_order_qty?: number;
+  scenario_lead_days?: number;
+  scenario_product_id?: number;
+}
+
+export interface PredictiveFreshness {
+  status?: string | null;
+  stale_risk_count?: number | null;
+  uncovered_count?: number | null;
+  label?: string | null;
+}
+
+export interface PredictiveForecastCoverage {
+  covered?: number;
+  selected?: number;
+  label?: string;
+}
+
+export interface PredictiveKpiMetric<T = number | null> {
+  value?: T;
+  label?: string;
+  definition?: string;
+  horizon_days?: number;
+  by_horizon?: Record<string, number | null>;
+  threshold?: number;
+  kind?: string;
+  distinct_from?: string;
+  policy?: string;
+  current_inventory_value_paise?: number | null;
+  unavailable_reason?: string | null;
+}
+
+export interface PredictiveOverview {
+  ready: boolean;
+  horizon_days?: number;
+  forecast_as_of?: string | null;
+  operational_as_of?: string | null;
+  model_version?: string | null;
+  forecast_source?: string;
+  product_count?: number;
+  forecast_coverage?: PredictiveForecastCoverage;
+  freshness?: PredictiveFreshness;
+  interval_note?: string;
+  projection_note?: string;
+  note?: string | null;
+  kpis?: {
+    expected_demand_units?: PredictiveKpiMetric;
+    products_at_stockout_risk?: PredictiveKpiMetric<number>;
+    excess_inventory_value_paise?: PredictiveKpiMetric<number>;
+    recommended_replenishment_spend_paise?: PredictiveKpiMetric<number>;
+    projected_inventory_value_paise?: PredictiveKpiMetric<number>;
+    forecast_coverage?: PredictiveForecastCoverage;
+  };
+  live_stock_units?: number | null;
+  live_inventory_value_paise?: number | null;
+  provenance?: string;
+}
+
+export interface PredictiveDemandPoint {
+  date: string;
+  actual_units?: number | null;
+  p10?: number | null;
+  p50?: number | null;
+  p90?: number | null;
+  is_forecast?: boolean;
+  sku_count?: number;
+  interval_kind?: string;
+}
+
+export interface PredictiveDemand {
+  ready: boolean;
+  forecast_as_of?: string | null;
+  horizon_days?: number;
+  model_version?: string | null;
+  forecast_coverage?: PredictiveForecastCoverage;
+  freshness?: PredictiveFreshness;
+  history?: PredictiveDemandPoint[];
+  forecast?: PredictiveDemandPoint[];
+  series?: PredictiveDemandPoint[];
+  interval_note?: string;
+  aggregation?: string;
+  note?: string | null;
+}
+
+export interface PredictiveProjectionPoint {
+  date: string;
+  is_forecast?: boolean;
+  projected_inventory_units?: number;
+  projected_inventory_value_paise?: number;
+  predicted_demand?: number;
+  fulfilled_units?: number;
+  receipts?: number;
+  unmet_demand?: number;
+  scenario?: string;
+  forecast_as_of?: string;
+}
+
+export interface PredictiveProjection {
+  ready: boolean;
+  forecast_as_of?: string | null;
+  mode?: string;
+  horizon_days?: number;
+  model_version?: string | null;
+  forecast_coverage?: PredictiveForecastCoverage;
+  freshness?: PredictiveFreshness;
+  history?: {
+    date: string;
+    inventory_value_paise?: number;
+    projected_inventory_value_paise?: number;
+    projected_inventory_units?: number;
+    stock_units?: number;
+    is_forecast?: boolean;
+  }[];
+  series?: PredictiveProjectionPoint[];
+  opening_inventory_value_paise?: number | null;
+  ending_inventory_value_paise?: number | null;
+  projection_note?: string;
+  notes?: string[];
+  note?: string | null;
+}
+
+export interface PredictiveRiskProduct {
+  product_id: number;
+  sku: string;
+  name: string;
+  category?: string;
+  current_stock: number;
+  stock_value_paise: number;
+  forecast_demand_28d?: number | null;
+  stockout_risk?: number | null;
+  risk_band?: string;
+  days_of_supply?: number | null;
+  risk_freshness?: string;
+  suggested_qty?: number | null;
+  estimated_cost_paise?: number | null;
+  expected_arrival_date?: string | null;
+  trace_id?: string | null;
+  excess_risk?: number | null;
+}
+
+export interface PredictiveRisks {
+  ready: boolean;
+  forecast_as_of?: string | null;
+  model_version?: string | null;
+  freshness?: PredictiveFreshness;
+  thresholds?: { high?: number; moderate?: number; definition?: string };
+  distribution?: Record<string, number>;
+  at_risk_count?: number;
+  operational_high_risk_level_count?: number;
+  categories?: { category: string; at_risk_skus: number; sku_count: number; stock_value_paise: number; avg_days_of_supply?: number | null }[];
+  products?: PredictiveRiskProduct[];
+  excess?: {
+    items?: PredictiveExcessItem[];
+    proxy_definition?: string;
+    modeled_risk_definition?: string;
+  };
+  aggregation_note?: string;
+  note?: string | null;
+}
+
+export interface PredictiveExcessItem {
+  product_id: number;
+  sku: string;
+  name: string;
+  category?: string;
+  current_stock: number;
+  excess_units_proxy: number;
+  excess_value_paise_proxy: number;
+  days_of_supply?: number | null;
+  modeled_excess_risk?: number | null;
+  forecast_28d?: number | null;
+}
+
+export interface PredictiveRecommendationItem {
+  product_id: number;
+  sku: string;
+  name: string;
+  category?: string;
+  current_stock: number;
+  pack_size?: number;
+  suggested_qty: number;
+  estimated_cost_paise: number;
+  forecast_demand_28d?: number | null;
+  stockout_risk?: number | null;
+  excess_risk?: number | null;
+  expected_arrival_date?: string | null;
+  arrival_date_role?: string;
+  days_of_supply?: number | null;
+  status?: string;
+  trace_id?: string | null;
+  constraints?: string[];
+  explanation?: string;
+}
+
+export interface PredictiveRecommendations {
+  ready: boolean;
+  forecast_as_of?: string | null;
+  model_version?: string | null;
+  total_recommended_spend_paise?: number;
+  ranking_rule?: string;
+  items: PredictiveRecommendationItem[];
+  insights?: { id: string; title?: string; severity?: string; text: string }[];
+  note?: string | null;
+}
+
+export interface PredictiveExplain {
+  ready: boolean;
+  product: {
+    product_id: number;
+    sku: string;
+    name: string;
+    category?: string;
+    stock_on_hand: number;
+    unit_cost_paise?: number;
+    pack_size?: number;
+    stockout_risk?: number | null;
+    days_of_supply?: number | null;
+    risk_freshness?: string;
+  };
+  forecast_as_of?: string | null;
+  model_version?: string | null;
+  forecast_demand_28d?: number | null;
+  recommendation?: {
+    suggested_qty?: number;
+    estimated_cost_paise?: number | null;
+    expected_arrival_date?: string | null;
+    expected_stockout_risk?: number | null;
+    expected_excess_risk?: number | null;
+    trace_id?: string | null;
+    explanation?: string;
+    constraints?: string[];
+  } | null;
+  comparison?: {
+    no_reorder?: { ending_inventory_value_paise?: number; total_unmet_demand_units?: number; series?: PredictiveProjectionPoint[] };
+    recommended?: { ending_inventory_value_paise?: number; total_unmet_demand_units?: number; series?: PredictiveProjectionPoint[] };
+    label?: string;
+  };
+  links?: { simulator?: string; agents?: string; inventory?: string; performance?: string };
+  note?: string | null;
+}
+
+export interface PredictiveDataQuality {
+  ready: boolean;
+  forecast?: Record<string, unknown>;
+  forecast_coverage?: PredictiveForecastCoverage;
+  freshness?: PredictiveFreshness;
+  model_versions?: { agent_name: string; version?: string; trained_at?: string; training_source?: string }[];
+  historical_analytics?: Record<string, unknown>;
+  stale_risk_count?: number;
+  limitations?: string[];
+  interval_note?: string;
+  projection_note?: string;
 }
 
 export interface AnalyticsInsight {
